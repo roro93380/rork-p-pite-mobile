@@ -1,6 +1,6 @@
 import { Pepite } from '@/types';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 const UNSPLASH_IMAGES: Record<string, string> = {
   watch: 'https://images.unsplash.com/photo-1524592094714-0f0654e20314?w=600&h=600&fit=crop',
@@ -73,60 +73,46 @@ interface GeminiPart {
   };
 }
 
-function buildVideoExpertPrompt(merchantName: string, pageContent: string, frameCount: number): string {
+function buildVideoPrompt(merchantName: string, pageContent: string): string {
   return `Tu es un EXPERT en achat-revente et flipping depuis 15 ans. Tu connais parfaitement les cotes du marché de l'occasion en France.
 
-TON EXPERTISE :
-- Tu maîtrises les prix du marché de revente pour : montres de luxe, sneakers limitées, sacs de marque, électronique, consoles retro, vinyles, mobilier design, art, bijoux, vêtements de marque
-- Tu sais identifier les annonces sous-évaluées en quelques secondes
-- Tu connais les techniques de revente (eBay, Vinted, Vestiaire Collective, marchés spécialisés)
-- Tu calcules le profit NET réaliste (après frais de plateforme ~10-15%, envoi ~5-10€)
-
-CONTEXTE DU SCAN VIDÉO :
-L'utilisateur a scanné "${merchantName}" pendant 30 secondes. Tu reçois ${frameCount} captures d'écran prises pendant sa navigation, comme des frames d'une vidéo de son écran.
+Tu reçois une vidéo d'enregistrement d'écran d'un utilisateur qui navigue sur "${merchantName}". C'est un enregistrement réel de son téléphone.
 ${pageContent ? `\nDonnées textuelles extraites en complément :\n---\n${pageContent.substring(0, 6000)}\n---` : ''}
 
 MISSION :
-Analyse CHAQUE image/frame attentivement. Regarde les annonces visibles : titres, prix, photos des produits, descriptions.
-Identifie les VRAIES bonnes affaires RÉELLEMENT VISIBLES dans ces captures.
+Regarde attentivement cette vidéo. Identifie TOUTES les annonces visibles : titres, prix, photos, descriptions.
+Trouve les VRAIES bonnes affaires RÉELLEMENT VISIBLES.
 
-RÈGLE ABSOLUE : Tu ne dois JAMAIS inventer, simuler ou imaginer des annonces. Tu dois UNIQUEMENT rapporter des annonces que tu vois RÉELLEMENT dans les captures d'écran ou dans les données textuelles extraites. Si tu ne vois aucune annonce réelle avec un titre et un prix, retourne un tableau vide : {"pepites": []}.
+RÈGLE ABSOLUE : Ne JAMAIS inventer d'annonces. UNIQUEMENT celles visibles dans la vidéo. Si aucune annonce réelle avec titre et prix, retourne : {"pepites": []}.
 
-CRITÈRES DE SÉLECTION D'UNE PÉPITE :
-1. L'annonce DOIT être réellement visible dans les captures ou les données textuelles (titre ET prix visibles)
-2. Le prix demandé est au minimum 8% en dessous de la valeur marché de revente (même une petite marge compte !)
-3. Le produit peut se revendre (pas besoin que ce soit ultra-demandé, juste revendable)
-4. Tout profit est bon à prendre, même 5€ ou 10€ de marge
-5. L'état du produit semble acceptable pour la revente
+CRITÈRES :
+1. L'annonce DOIT être visible dans la vidéo (titre ET prix)
+2. Prix au minimum 8% sous la valeur marché de revente
+3. Produit revendable
+4. Tout profit compte, même 5-10€
 
-IMPORTANT : Sois TRÈS inclusif. Dès qu'il y a une marge possible d'au moins 8%, c'est une pépite.
-- Un vêtement de marque à -10% du prix marché = pépite
-- Un objet électronique légèrement sous-coté = pépite
-- Un article de marque connue en dessous du prix habituel = pépite
-- Même les petites marges comptent pour un revendeur actif
+Sois TRÈS inclusif. Dès 8% de marge = pépite.
 
-IMPORTANT : Extrais les URLs d'annonces et les images de produits RÉELLES visibles dans les captures (champs adUrl et adImageUrl). Ne génère pas de fausses URLs.
-
-Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce format exact :
+Réponds UNIQUEMENT en JSON valide, sans markdown :
 {
   "pepites": [
     {
-      "title": "Nom EXACT du produit tel que vu dans l'annonce",
+      "title": "Nom EXACT du produit vu dans l'annonce",
       "sellerPrice": 0,
       "estimatedValue": 0,
       "profit": 0,
       "source": "${merchantName}",
-      "sourceUrl": "URL réelle de l'annonce extraite des captures ou des données",
-      "category": "Catégorie (Montres, Sneakers, Luxe, Électronique, Retro Gaming, Mode, Bijoux, Mobilier, Art, Vinyles)",
-      "description": "Explication experte de pourquoi c'est une bonne affaire : état estimé, raison de la sous-évaluation, où et comment revendre, délai de revente estimé",
-      "imageKeyword": "mot-clé anglais simple pour trouver une image (watch, sneakers, handbag, phone, laptop, console, jewelry, furniture, camera, vintage, gaming, clothing, bag, bike, book, vinyl, electronics, art, shoes)",
-      "adUrl": "URL directe vers l'annonce RÉELLE extraite des captures",
-      "adImageUrl": "URL de l'image du produit RÉELLE extraite des captures, sinon chaîne vide"
+      "sourceUrl": "URL réelle si visible",
+      "category": "Catégorie",
+      "description": "Pourquoi c'est une bonne affaire",
+      "imageKeyword": "mot-clé anglais (watch, sneakers, handbag, phone, laptop, console, jewelry, furniture, camera, vintage, gaming, clothing, bag, bike, book, vinyl, electronics, art, shoes)",
+      "adUrl": "URL de l'annonce si visible",
+      "adImageUrl": "URL image produit si visible, sinon chaîne vide"
     }
   ]
 }
 
-Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en trouves. La moindre marge de 8% suffit. Si tu ne vois VRAIMENT aucune annonce réelle, retourne : {"pepites": []}.`;
+Retourne 1-10 pépites. Si aucune annonce réelle : {"pepites": []}.`;
 }
 
 function buildTextOnlyPrompt(merchantName: string, pageContent: string): string {
@@ -276,7 +262,7 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<GeminiResponse> {
+async function callGeminiApi(apiKey: string, parts: GeminiPart[], isVideo: boolean = false): Promise<GeminiResponse> {
   const requestBody = {
     contents: [
       {
@@ -336,6 +322,34 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<Gemin
   throw new Error('Impossible de joindre l\'API Gemini après plusieurs tentatives.');
 }
 
+function createMjpegVideoFromFrames(frames: string[]): string {
+  const binaryFrames: Uint8Array[] = [];
+  for (const base64 of frames) {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    binaryFrames.push(bytes);
+  }
+
+  const totalSize = binaryFrames.reduce((sum, f) => sum + f.length, 0);
+  const combined = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const frame of binaryFrames) {
+    combined.set(frame, offset);
+    offset += frame.length;
+  }
+
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < combined.length; i += chunkSize) {
+    const chunk = combined.subarray(i, Math.min(i + chunkSize, combined.length));
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
 export async function analyzeWithGeminiVideo(
   apiKey: string,
   merchantName: string,
@@ -349,45 +363,71 @@ export async function analyzeWithGeminiVideo(
 
   console.log('[ScanService] ========== VIDEO ANALYSIS START ==========');
   console.log(`[ScanService] Merchant: ${merchantName}`);
-  console.log(`[ScanService] Frames: ${screenshots.length}`);
+  console.log(`[ScanService] Total frames captured: ${screenshots.length}`);
   console.log(`[ScanService] Text content: ${pageContent.length} chars`);
-  if (pageContent.length > 0) {
-    console.log(`[ScanService] Text preview: ${pageContent.substring(0, 300)}`);
-  }
 
-  const parts: GeminiPart[] = [];
+  const validFrames = screenshots.filter(s => s && s.length > 100);
+  console.log(`[ScanService] Valid frames: ${validFrames.length}`);
 
-  const prompt = buildVideoExpertPrompt(merchantName, pageContent, screenshots.length);
-  parts.push({ text: prompt });
-  console.log(`[ScanService] Prompt length: ${prompt.length} chars`);
-
-  let validFrames = 0;
-  for (let i = 0; i < screenshots.length; i++) {
-    const base64 = screenshots[i];
-    if (base64 && base64.length > 100) {
-      parts.push({
-        inlineData: {
-          mimeType: 'image/jpeg',
-          data: base64,
-        },
-      });
-      validFrames++;
-      console.log(`[ScanService] Added frame ${validFrames}: ${Math.round(base64.length / 1024)}KB`);
-    } else {
-      console.log(`[ScanService] Skipped invalid frame ${i + 1}: ${base64?.length ?? 0} bytes`);
-    }
-  }
-
-  if (validFrames === 0) {
-    console.log('[ScanService] No valid screenshots, falling back to text-only analysis');
+  if (validFrames.length === 0) {
+    console.log('[ScanService] No valid frames, falling back to text-only analysis');
     return analyzeWithGemini(apiKey, merchantName, pageContent);
   }
 
-  console.log(`[ScanService] Sending ${parts.length} parts to Gemini (1 prompt + ${validFrames} frames)`);
-  const data = await callGeminiApi(apiKey, parts);
-  console.log('[ScanService] Gemini video analysis response received');
+  const maxFrames = 6;
+  let selectedFrames: string[];
+  if (validFrames.length <= maxFrames) {
+    selectedFrames = validFrames;
+  } else {
+    selectedFrames = [];
+    const step = (validFrames.length - 1) / (maxFrames - 1);
+    for (let i = 0; i < maxFrames; i++) {
+      const idx = Math.round(i * step);
+      selectedFrames.push(validFrames[idx]);
+    }
+  }
+  console.log(`[ScanService] Selected ${selectedFrames.length} key frames for video`);
 
-  return parseGeminiResponse(data, merchantName);
+  const prompt = buildVideoPrompt(merchantName, pageContent);
+  console.log(`[ScanService] Prompt length: ${prompt.length} chars`);
+
+  try {
+    console.log('[ScanService] Creating video from frames...');
+    const videoBase64 = createMjpegVideoFromFrames(selectedFrames);
+    console.log(`[ScanService] Video size: ${Math.round(videoBase64.length / 1024)}KB`);
+
+    const parts: GeminiPart[] = [
+      { text: prompt },
+      {
+        inlineData: {
+          mimeType: 'video/mjpeg',
+          data: videoBase64,
+        },
+      },
+    ];
+
+    console.log('[ScanService] Sending 1 video + 1 prompt to Gemini (single request)');
+    const data = await callGeminiApi(apiKey, parts, true);
+    console.log('[ScanService] Gemini video analysis response received');
+    return parseGeminiResponse(data, merchantName);
+  } catch (videoError) {
+    console.warn('[ScanService] Video mode failed, falling back to image mode:', videoError);
+
+    const parts: GeminiPart[] = [{ text: prompt }];
+    for (const frame of selectedFrames) {
+      parts.push({
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: frame,
+        },
+      });
+    }
+
+    console.log(`[ScanService] Fallback: sending ${selectedFrames.length} images + prompt`);
+    const data = await callGeminiApi(apiKey, parts);
+    console.log('[ScanService] Gemini fallback analysis response received');
+    return parseGeminiResponse(data, merchantName);
+  }
 }
 
 export async function analyzeWithGemini(
