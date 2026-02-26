@@ -173,6 +173,30 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
 Génère entre 2 et 5 pépites réalistes. Varie les catégories.`;
 }
 
+function repairTruncatedJson(raw: string): { pepites: GeminiPepite[] } {
+  let text = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+  const lastCompleteObject = text.lastIndexOf('},');
+  const lastClosingBrace = text.lastIndexOf('}]');
+
+  if (lastClosingBrace > lastCompleteObject && lastClosingBrace > 0) {
+    text = text.substring(0, lastClosingBrace + 2) + '}';
+    console.log('[ScanService] Repaired JSON by trimming after last complete array entry');
+  } else if (lastCompleteObject > 0) {
+    text = text.substring(0, lastCompleteObject + 1) + ']}';
+    console.log('[ScanService] Repaired JSON by closing after last complete object');
+  } else {
+    throw new Error('Cannot repair: no complete object found');
+  }
+
+  const parsed = JSON.parse(text);
+  if (!parsed.pepites || !Array.isArray(parsed.pepites)) {
+    throw new Error('Repaired JSON missing pepites array');
+  }
+  console.log(`[ScanService] Successfully recovered ${parsed.pepites.length} pepites from truncated response`);
+  return parsed;
+}
+
 function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite[] {
   if (data.error) {
     console.error('[ScanService] Gemini returned error:', data.error);
@@ -192,9 +216,14 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
     const cleanJson = textContent.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     parsed = JSON.parse(cleanJson);
   } catch (parseError) {
-    console.error('[ScanService] Failed to parse Gemini JSON:', parseError);
-    console.error('[ScanService] Raw text was:', textContent);
-    throw new Error('Erreur de parsing de la réponse IA. Réessayez.');
+    console.log('[ScanService] Initial parse failed, attempting to recover truncated JSON...');
+    try {
+      parsed = repairTruncatedJson(textContent);
+    } catch (repairError) {
+      console.error('[ScanService] Failed to repair JSON:', repairError);
+      console.error('[ScanService] Raw text was:', textContent.substring(0, 1000));
+      throw new Error('Erreur de parsing de la réponse IA. Réessayez.');
+    }
   }
 
   if (!parsed.pepites || !Array.isArray(parsed.pepites) || parsed.pepites.length === 0) {
@@ -248,7 +277,7 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<Gemin
       temperature: 0.7,
       topK: 40,
       topP: 0.95,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 8192,
       responseMimeType: 'application/json',
     },
   };
