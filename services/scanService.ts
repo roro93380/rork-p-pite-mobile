@@ -214,7 +214,9 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
     throw new Error('Réponse vide de Gemini. Réessayez.');
   }
 
-  console.log('[ScanService] Raw Gemini text:', textContent.substring(0, 500));
+  console.log('[ScanService] ========== GEMINI RAW RESPONSE ==========');
+  console.log('[ScanService] Response length:', textContent.length, 'chars');
+  console.log('[ScanService] Raw text:', textContent.substring(0, 800));
 
   let parsed: { pepites: GeminiPepite[] };
   try {
@@ -232,11 +234,14 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
   }
 
   if (!parsed.pepites || !Array.isArray(parsed.pepites) || parsed.pepites.length === 0) {
-    console.log('[ScanService] No pepites found in analysis');
+    console.log('[ScanService] ⚠️ No pepites found in Gemini analysis - empty array returned');
     return [];
   }
 
-  console.log(`[ScanService] Gemini found ${parsed.pepites.length} pepites`);
+  console.log(`[ScanService] ✅ Gemini found ${parsed.pepites.length} pepites!`);
+  parsed.pepites.forEach((p, i) => {
+    console.log(`[ScanService]   #${i + 1}: ${p.title} | ${p.sellerPrice}€ → ${p.estimatedValue}€ (profit: ${p.profit}€)`);
+  });
 
   const now = new Date();
   const pepites: Pepite[] = parsed.pepites.map((p, index) => {
@@ -342,14 +347,21 @@ export async function analyzeWithGeminiVideo(
     throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
   }
 
-  console.log(`[ScanService] Video analysis: ${screenshots.length} frames for ${merchantName}`);
-  console.log(`[ScanService] Supplementary text: ${pageContent.length} chars`);
+  console.log('[ScanService] ========== VIDEO ANALYSIS START ==========');
+  console.log(`[ScanService] Merchant: ${merchantName}`);
+  console.log(`[ScanService] Frames: ${screenshots.length}`);
+  console.log(`[ScanService] Text content: ${pageContent.length} chars`);
+  if (pageContent.length > 0) {
+    console.log(`[ScanService] Text preview: ${pageContent.substring(0, 300)}`);
+  }
 
   const parts: GeminiPart[] = [];
 
   const prompt = buildVideoExpertPrompt(merchantName, pageContent, screenshots.length);
   parts.push({ text: prompt });
+  console.log(`[ScanService] Prompt length: ${prompt.length} chars`);
 
+  let validFrames = 0;
   for (let i = 0; i < screenshots.length; i++) {
     const base64 = screenshots[i];
     if (base64 && base64.length > 100) {
@@ -359,15 +371,19 @@ export async function analyzeWithGeminiVideo(
           data: base64,
         },
       });
-      console.log(`[ScanService] Added frame ${i + 1}: ${Math.round(base64.length / 1024)}KB`);
+      validFrames++;
+      console.log(`[ScanService] Added frame ${validFrames}: ${Math.round(base64.length / 1024)}KB`);
+    } else {
+      console.log(`[ScanService] Skipped invalid frame ${i + 1}: ${base64?.length ?? 0} bytes`);
     }
   }
 
-  if (parts.length === 1) {
+  if (validFrames === 0) {
     console.log('[ScanService] No valid screenshots, falling back to text-only analysis');
     return analyzeWithGemini(apiKey, merchantName, pageContent);
   }
 
+  console.log(`[ScanService] Sending ${parts.length} parts to Gemini (1 prompt + ${validFrames} frames)`);
   const data = await callGeminiApi(apiKey, parts);
   console.log('[ScanService] Gemini video analysis response received');
 
@@ -384,9 +400,17 @@ export async function analyzeWithGemini(
     throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
   }
 
+  console.log('[ScanService] ========== TEXT-ONLY ANALYSIS START ==========');
+  console.log(`[ScanService] Merchant: ${merchantName}`);
+  console.log(`[ScanService] Page content: ${pageContent.length} chars`);
+  if (pageContent.length > 0) {
+    console.log(`[ScanService] Content preview: ${pageContent.substring(0, 500)}`);
+  } else {
+    console.warn('[ScanService] ⚠️ NO PAGE CONTENT - analysis will likely return empty results');
+  }
+
   const prompt = buildTextOnlyPrompt(merchantName, pageContent);
-  console.log(`[ScanService] Text-only analysis for: ${merchantName}`);
-  console.log(`[ScanService] Page content length: ${pageContent.length} chars`);
+  console.log(`[ScanService] Prompt length: ${prompt.length} chars`);
 
   const parts: GeminiPart[] = [{ text: prompt }];
   const data = await callGeminiApi(apiKey, parts);

@@ -196,6 +196,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CORS_PROXIES = [
   'https://api.allorigins.win/raw?url=',
   'https://corsproxy.io/?',
+  'https://api.codetabs.com/v1/proxy?quest=',
 ];
 
 async function fetchPageContentWeb(pageUrl: string): Promise<string> {
@@ -204,35 +205,65 @@ async function fetchPageContentWeb(pageUrl: string): Promise<string> {
   for (const proxy of CORS_PROXIES) {
     try {
       const fetchUrl = proxy + encodeURIComponent(pageUrl);
+      console.log(`[Browse] Trying proxy: ${proxy.substring(0, 40)}...`);
       const response = await fetch(fetchUrl, { 
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(12000),
       });
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`[Browse] Proxy returned ${response.status}`);
+        continue;
+      }
       
       const html = await response.text();
-      if (!html || html.length < 100) continue;
+      if (!html || html.length < 100) {
+        console.log(`[Browse] Proxy returned too short response: ${html?.length ?? 0} chars`);
+        continue;
+      }
       
-      console.log(`[Browse] Web fetch success via proxy, ${html.length} chars`);
-      return parseHtmlToContent(html, pageUrl);
-    } catch (e) {
-      console.log(`[Browse] Proxy failed:`, e);
+      console.log(`[Browse] Web fetch SUCCESS via proxy, ${html.length} chars`);
+      const content = parseHtmlToContent(html, pageUrl);
+      console.log(`[Browse] Parsed content: ${content.length} chars`);
+      return content;
+    } catch (e: any) {
+      console.log(`[Browse] Proxy failed: ${e?.message ?? e}`);
     }
   }
 
   try {
-    const response = await fetch(pageUrl, { signal: AbortSignal.timeout(8000) });
+    console.log('[Browse] Trying direct fetch...');
+    const response = await fetch(pageUrl, { 
+      signal: AbortSignal.timeout(8000),
+      mode: 'cors',
+    });
     if (response.ok) {
       const html = await response.text();
       if (html && html.length > 100) {
         console.log(`[Browse] Direct fetch success, ${html.length} chars`);
         return parseHtmlToContent(html, pageUrl);
       }
+    } else {
+      console.log(`[Browse] Direct fetch returned ${response.status}`);
     }
-  } catch (e) {
-    console.log('[Browse] Direct fetch failed:', e);
+  } catch (e: any) {
+    console.log(`[Browse] Direct fetch failed: ${e?.message ?? e}`);
   }
 
-  console.log('[Browse] All fetch methods failed');
+  try {
+    console.log('[Browse] Trying no-cors fetch...');
+    const response = await fetch(pageUrl, { 
+      signal: AbortSignal.timeout(8000),
+      mode: 'no-cors',
+    });
+    const html = await response.text();
+    if (html && html.length > 100) {
+      console.log(`[Browse] No-cors fetch got ${html.length} chars`);
+      return parseHtmlToContent(html, pageUrl);
+    }
+  } catch (e: any) {
+    console.log(`[Browse] No-cors fetch failed: ${e?.message ?? e}`);
+  }
+
+  console.log('[Browse] ALL fetch methods failed for', pageUrl);
   return '';
 }
 
@@ -560,18 +591,20 @@ export default function BrowseScreen() {
 
   const fetchWebContent = useCallback(async () => {
     if (Platform.OS === 'web' && url) {
-      console.log('[Browse] Web platform: fetching page content via proxy');
+      console.log('[Browse] === Web platform: fetching page content via proxy ===');
+      console.log('[Browse] URL:', url);
       try {
         const content = await fetchPageContentWeb(url);
         if (content && content.length > 50) {
           extractedContentRef.current = content;
           setExtractedContent(content);
-          console.log(`[Browse] Web content fetched: ${content.length} chars`);
+          console.log(`[Browse] ✅ Web content fetched: ${content.length} chars`);
+          console.log(`[Browse] Content preview: ${content.substring(0, 200)}`);
         } else {
-          console.log('[Browse] Web content fetch returned insufficient data');
+          console.log('[Browse] ⚠️ Web content fetch returned insufficient data:', content?.length ?? 0, 'chars');
         }
-      } catch (e) {
-        console.log('[Browse] Web content fetch error:', e);
+      } catch (e: any) {
+        console.log('[Browse] ❌ Web content fetch error:', e?.message ?? e);
       }
     }
   }, [url]);
@@ -603,10 +636,12 @@ export default function BrowseScreen() {
     startScan();
 
     if (Platform.OS === 'web') {
+      console.log('[Browse] Web: starting content fetch loop');
       fetchWebContent();
       const webFetchInterval = setInterval(() => {
+        console.log('[Browse] Web: refetching content...');
         fetchWebContent();
-      }, 10000);
+      }, 8000);
       setTimeout(() => clearInterval(webFetchInterval), 35000);
     } else {
       initHtml2Canvas();
@@ -615,6 +650,8 @@ export default function BrowseScreen() {
   }, [startScan, name, settings.geminiApiKey, extractPageContent, initHtml2Canvas, router, fetchWebContent]);
 
   const doStopScan = useCallback(async () => {
+    console.log('[Browse] === doStopScan called ===');
+    
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       setTimeout(() => {
@@ -623,32 +660,45 @@ export default function BrowseScreen() {
       captureScreenshot();
       extractPageContent();
     } else {
+      console.log('[Browse] Web: doing final content fetch before stop...');
       await fetchWebContent();
     }
 
     setTimeout(() => {
       const merchantName = name ?? 'Shopping';
-      const content = extractedContentRef.current;
+      let content = extractedContentRef.current;
       const screenshots = [...screenshotsRef.current];
 
-      console.log(`[Browse] Stopping scan after ${scanTimeRef.current}s`);
+      console.log('[Browse] ============ SCAN STOP SUMMARY ============');
+      console.log(`[Browse] Merchant: ${merchantName}`);
       console.log(`[Browse] Platform: ${Platform.OS}`);
-      console.log(`[Browse] Captured ${screenshots.length} frames`);
-      console.log(`[Browse] Extracted ${content.length} chars of text`);
+      console.log(`[Browse] Scan duration: ${scanTimeRef.current}s`);
+      console.log(`[Browse] Screenshots captured: ${screenshots.length}`);
+      console.log(`[Browse] Text content length: ${content.length} chars`);
       if (screenshots.length > 0) {
         console.log(`[Browse] Total screenshot data: ${Math.round(screenshots.reduce((s, f) => s + f.length, 0) / 1024)}KB`);
       }
-
-      if (content.length === 0 && screenshots.length === 0) {
-        console.warn('[Browse] WARNING: No content and no screenshots captured! Analysis will likely fail.');
+      if (content.length > 0) {
+        console.log(`[Browse] Content preview: ${content.substring(0, 300)}`);
       }
 
+      if (content.length === 0 && screenshots.length === 0) {
+        console.warn('[Browse] ⚠️ WARNING: No content and no screenshots captured!');
+        console.log('[Browse] Building fallback context from URL and merchant info...');
+        content = `URL analysée: ${url ?? 'inconnue'}\nMarchand: ${merchantName}\nPlateforme: ${source ?? 'inconnue'}\n\nATTENTION: Le contenu de la page n'a pas pu être extrait (restrictions cross-origin). L'analyse est basée uniquement sur l'URL fournie. Si tu ne peux pas analyser le contenu réel, retourne {"pepites": []}.`;
+        extractedContentRef.current = content;
+        console.log('[Browse] Fallback content created:', content.length, 'chars');
+      }
+
+      console.log('[Browse] ============ SENDING TO GEMINI ============');
+      console.log(`[Browse] Mode: ${screenshots.length > 0 ? 'VIDEO (' + screenshots.length + ' frames)' : 'TEXT-ONLY'}`);
+      
       setScanning(false);
       setShowResults(true);
       overlayFade.setValue(0);
       stopScan(merchantName, content, screenshots);
     }, 800);
-  }, [stopScan, name, extractPageContent, captureScreenshot, fetchWebContent]);
+  }, [stopScan, name, url, source, extractPageContent, captureScreenshot, fetchWebContent]);
 
   const handleStopScan = useCallback(() => {
     doStopScan();

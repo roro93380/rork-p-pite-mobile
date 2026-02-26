@@ -149,26 +149,38 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
   const scanMutation = useMutation({
     mutationFn: async ({ merchantName, pageContent, screenshots }: { merchantName: string; pageContent: string; screenshots?: string[] }) => {
-      console.log(`[PepiteProvider] Starting Gemini analysis for ${merchantName}...`);
-      console.log(`[PepiteProvider] API key present: ${settings.geminiApiKey.length > 0}`);
-      console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}, Text: ${pageContent.length} chars`);
+      console.log('[PepiteProvider] ============ SCAN MUTATION START ============');
+      console.log(`[PepiteProvider] Merchant: ${merchantName}`);
+      console.log(`[PepiteProvider] API key present: ${settings.geminiApiKey.length > 0} (${settings.geminiApiKey.length} chars)`);
+      console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
+      console.log(`[PepiteProvider] Text content: ${pageContent.length} chars`);
+      if (pageContent.length > 0) {
+        console.log(`[PepiteProvider] Text preview: ${pageContent.substring(0, 200)}`);
+      } else {
+        console.warn('[PepiteProvider] ⚠️ EMPTY page content!');
+      }
 
       if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
         throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
       }
 
       if (screenshots && screenshots.length > 0) {
-        console.log(`[PepiteProvider] Using VIDEO mode with ${screenshots.length} frames`);
+        console.log(`[PepiteProvider] → VIDEO mode with ${screenshots.length} frames`);
         const results = await analyzeWithGeminiVideo(settings.geminiApiKey, merchantName, screenshots, pageContent);
+        console.log(`[PepiteProvider] ✅ VIDEO analysis returned ${results.length} pepites`);
         return results;
       }
 
-      console.log('[PepiteProvider] Using TEXT-ONLY mode (no screenshots)');
+      console.log('[PepiteProvider] → TEXT-ONLY mode (no screenshots)');
       const results = await analyzeWithGemini(settings.geminiApiKey, merchantName, pageContent);
+      console.log(`[PepiteProvider] ✅ TEXT analysis returned ${results.length} pepites`);
       return results;
     },
     onSuccess: async (results) => {
-      console.log(`[PepiteProvider] Gemini analysis complete: ${results.length} pepites found`);
+      console.log(`[PepiteProvider] ============ SCAN SUCCESS: ${results.length} pepites ============`);
+      results.forEach((p, i) => {
+        console.log(`[PepiteProvider]   #${i + 1}: ${p.title} | ${p.sellerPrice}€ → ${p.estimatedValue}€`);
+      });
       setLastScanResults(results);
 
       if (results.length > 0) {
@@ -181,7 +193,9 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       setScanError(null);
     },
     onError: (error: Error) => {
-      console.error('[PepiteProvider] Scan mutation error:', error.message);
+      console.error('[PepiteProvider] ============ SCAN ERROR ============');
+      console.error('[PepiteProvider] Error:', error.message);
+      console.error('[PepiteProvider] Stack:', error.stack);
       setScanError(error.message ?? 'Erreur lors de l\'analyse. Veuillez réessayer.');
     },
   });
@@ -196,7 +210,10 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   const stopScan = useCallback((merchantName: string, pageContent: string, screenshots?: string[]) => {
     setIsScanning(false);
     setScanTimer(0);
-    console.log(`[PepiteProvider] Stopping scan, launching Gemini analysis for: ${merchantName}`);
+    console.log('[PepiteProvider] ============ STOP SCAN → LAUNCHING ANALYSIS ============');
+    console.log(`[PepiteProvider] Merchant: ${merchantName}`);
+    console.log(`[PepiteProvider] Content: ${pageContent.length} chars`);
+    console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
     console.log(`[PepiteProvider] Mode: ${screenshots && screenshots.length > 0 ? 'VIDEO (' + screenshots.length + ' frames)' : 'TEXT-ONLY'}`);
     scanMutation.mutate({ merchantName, pageContent, screenshots });
   }, [scanMutation]);
