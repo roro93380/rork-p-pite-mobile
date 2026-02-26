@@ -230,6 +230,13 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
   return pepites;
 }
 
+const MAX_RETRIES = 4;
+const BASE_DELAY_MS = 2000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<GeminiResponse> {
   const requestBody = {
     contents: [
@@ -248,17 +255,35 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<Gemin
 
   console.log(`[ScanService] Calling Gemini API with ${parts.length} parts`);
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const backoff = BASE_DELAY_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
+      console.log(`[ScanService] Retry ${attempt}/${MAX_RETRIES} after ${Math.round(backoff)}ms`);
+      await delay(backoff);
+    }
 
-  if (!response.ok) {
+    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (response.ok) {
+      return response.json();
+    }
+
     const errorText = await response.text();
-    console.error(`[ScanService] Gemini API error ${response.status}:`, errorText);
+    console.error(`[ScanService] Gemini API error ${response.status} (attempt ${attempt + 1}):`, errorText);
+
+    if (response.status === 429 || response.status === 503) {
+      if (attempt < MAX_RETRIES) {
+        console.log(`[ScanService] Rate limited, will retry...`);
+        continue;
+      }
+      throw new Error('Quota API dépassé. Vérifiez votre plan Gemini ou réessayez dans quelques minutes.');
+    }
 
     if (response.status === 400) {
       throw new Error('Clé API invalide ou requête malformée. Vérifiez votre clé dans les réglages.');
@@ -266,13 +291,10 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<Gemin
     if (response.status === 403) {
       throw new Error('Clé API non autorisée. Vérifiez que votre clé Gemini est active.');
     }
-    if (response.status === 429) {
-      throw new Error('Trop de requêtes. Attendez quelques secondes et réessayez.');
-    }
     throw new Error(`Erreur API Gemini (${response.status}). Réessayez.`);
   }
 
-  return response.json();
+  throw new Error('Impossible de joindre l\'API Gemini après plusieurs tentatives.');
 }
 
 export async function analyzeWithGeminiVideo(
