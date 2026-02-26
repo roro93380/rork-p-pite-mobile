@@ -7,13 +7,32 @@ import {
   Platform,
   Dimensions,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
-import { Radio, AlertCircle } from 'lucide-react-native';
+import { Radio, AlertCircle, CheckCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import GoldButton from '@/components/GoldButton';
 import { usePepite } from '@/providers/PepiteProvider';
+
+const SCAN_TIPS = [
+  'Scrollez lentement pour de meilleurs r\u00e9sultats',
+  'Passez bien sur chaque annonce',
+  'Restez sur les pages avec des prix visibles',
+  'Prenez votre temps, l\'IA capture tout',
+  'Concentrez-vous sur les bonnes cat\u00e9gories',
+  'Chaque scroll est analys\u00e9 par l\'IA',
+  'L\'IA d\u00e9tecte les marges d\u00e8s 8%',
+];
+
+const ANALYSIS_STEPS = [
+  'Captures envoy\u00e9es \u00e0 Gemini',
+  'Analyse des annonces d\u00e9tect\u00e9es',
+  '\u00c9valuation des prix du march\u00e9',
+  'Calcul des marges de revente',
+  'S\u00e9lection des meilleures p\u00e9pites',
+];
 
 const SCAN_DURATION_LIMIT = 30;
 
@@ -25,10 +44,14 @@ export default function ScanScreen() {
     'recording'
   );
 
+  const [currentTipIndex, setCurrentTipIndex] = useState<number>(0);
+  const [analysisStep, setAnalysisStep] = useState<number>(0);
+
   const pulseAnim = useRef(new Animated.Value(0.6)).current;
   const ringScale = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const dotAnim = useRef(new Animated.Value(0)).current;
+  const tipFadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
@@ -75,7 +98,18 @@ export default function ScanScreen() {
     const interval = setInterval(() => {
       setTimer((t) => t + 1);
     }, 1000);
-    return () => clearInterval(interval);
+
+    const tipInterval = setInterval(() => {
+      Animated.timing(tipFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
+        setCurrentTipIndex((prev) => (prev + 1) % SCAN_TIPS.length);
+        Animated.timing(tipFadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+      });
+    }, 4000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(tipInterval);
+    };
   }, [phase]);
 
   useEffect(() => {
@@ -119,6 +153,9 @@ export default function ScanScreen() {
 
   useEffect(() => {
     if (phase === 'analyzing') {
+      setAnalysisStep(0);
+      progressAnim.setValue(0);
+
       const loopDots = Animated.loop(
         Animated.sequence([
           Animated.timing(dotAnim, { toValue: 1, duration: 600, useNativeDriver: false }),
@@ -128,13 +165,21 @@ export default function ScanScreen() {
       loopDots.start();
 
       Animated.timing(progressAnim, {
-        toValue: 0.85,
-        duration: 15000,
+        toValue: 0.9,
+        duration: 25000,
         useNativeDriver: false,
       }).start();
 
+      const stepInterval = setInterval(() => {
+        setAnalysisStep((prev) => {
+          if (prev < ANALYSIS_STEPS.length - 1) return prev + 1;
+          return prev;
+        });
+      }, 4000);
+
       return () => {
         loopDots.stop();
+        clearInterval(stepInterval);
       };
     }
   }, [phase]);
@@ -214,9 +259,9 @@ export default function ScanScreen() {
             Arrêt auto dans {SCAN_DURATION_LIMIT - timer}s
           </Text>
 
-          <Text style={styles.instructions}>
-            Naviguez dans votre app de shopping.{'\n'}Pépite analyse en temps réel via Gemini.
-          </Text>
+          <Animated.Text style={[styles.instructions, { opacity: tipFadeAnim }]}>
+            {SCAN_TIPS[currentTipIndex]}
+          </Animated.Text>
 
           <GoldButton
             title="Arrêter le scan"
@@ -231,12 +276,12 @@ export default function ScanScreen() {
         <View style={styles.analyzingView}>
           <View style={styles.analyzingIconContainer}>
             <Animated.View style={[styles.analyzingDot, { opacity: dotAnim }]} />
-            <Text style={styles.analyzingEmoji}>🔍</Text>
+            <Text style={styles.analyzingEmoji}>🧠</Text>
           </View>
 
-          <Text style={styles.analyzingTitle}>Analyse Gemini...</Text>
+          <Text style={styles.analyzingTitle}>Analyse en cours...</Text>
           <Text style={styles.analyzingSubtitle}>
-            L'expert IA analyse les annonces pour détecter les pépites cachées.
+            L'expert IA détecte les pépites cachées
           </Text>
 
           <View style={styles.progressBar}>
@@ -246,10 +291,39 @@ export default function ScanScreen() {
           </View>
 
           <View style={styles.stepsContainer}>
-            <Text style={styles.stepText}>✓ Scan terminé ({formatTimer(timer)})</Text>
-            <Text style={styles.stepTextActive}>⟳ Analyse par Gemini 1.5 Flash...</Text>
-            <Text style={styles.stepTextPending}>○ Calcul des profits potentiels</Text>
+            {ANALYSIS_STEPS.map((step, i) => {
+              const isDone = i < analysisStep;
+              const isActive = i === analysisStep;
+              return (
+                <View key={i} style={styles.stepRow}>
+                  <View style={[
+                    styles.stepDotContainer,
+                    isDone && styles.stepDotDone,
+                    isActive && styles.stepDotActive,
+                  ]}>
+                    {isDone ? (
+                      <CheckCircle size={14} color={Colors.success} />
+                    ) : isActive ? (
+                      <ActivityIndicator size="small" color={Colors.gold} />
+                    ) : (
+                      <View style={styles.stepDotEmpty} />
+                    )}
+                  </View>
+                  <Text style={[
+                    styles.stepTextBase,
+                    isDone && styles.stepTextDone,
+                    isActive && styles.stepTextActiveLabel,
+                  ]}>
+                    {step}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
+
+          <Text style={styles.scanDurationNote}>
+            Scan de {formatTimer(timer)} analysé par Gemini
+          </Text>
         </View>
       )}
 
@@ -460,22 +534,50 @@ const styles = StyleSheet.create({
   },
   stepsContainer: {
     alignSelf: 'stretch',
+    gap: 16,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
-  stepText: {
-    color: Colors.success,
+  stepDotContainer: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepDotDone: {
+    backgroundColor: 'rgba(0, 200, 83, 0.15)',
+  },
+  stepDotActive: {
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+  },
+  stepDotEmpty: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.textMuted,
+    opacity: 0.4,
+  },
+  stepTextBase: {
+    color: Colors.textMuted,
     fontSize: 14,
     fontWeight: '500' as const,
   },
-  stepTextActive: {
+  stepTextDone: {
+    color: Colors.success,
+  },
+  stepTextActiveLabel: {
     color: Colors.gold,
-    fontSize: 14,
     fontWeight: '600' as const,
   },
-  stepTextPending: {
+  scanDurationNote: {
     color: Colors.textMuted,
-    fontSize: 14,
-    fontWeight: '400' as const,
+    fontSize: 12,
+    marginTop: 20,
+    textAlign: 'center',
   },
   doneView: {
     flex: 1,

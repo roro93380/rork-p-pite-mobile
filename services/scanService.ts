@@ -94,16 +94,16 @@ RÈGLE ABSOLUE : Tu ne dois JAMAIS inventer, simuler ou imaginer des annonces. T
 
 CRITÈRES DE SÉLECTION D'UNE PÉPITE :
 1. L'annonce DOIT être réellement visible dans les captures ou les données textuelles (titre ET prix visibles)
-2. Le prix demandé est au minimum 30% en dessous de la valeur marché
-3. Le produit a une demande forte et se revend facilement
-4. Le profit potentiel justifie l'effort (minimum 40€ de profit)
-5. L'état du produit est acceptable pour la revente
+2. Le prix demandé est au minimum 8% en dessous de la valeur marché de revente (même une petite marge compte !)
+3. Le produit peut se revendre (pas besoin que ce soit ultra-demandé, juste revendable)
+4. Tout profit est bon à prendre, même 5€ ou 10€ de marge
+5. L'état du produit semble acceptable pour la revente
 
-IMPORTANT : Sois réaliste dans tes estimations. Pas de profits fantaisistes.
-- Un iPhone d'occasion se revend sur certaines plateformes avec 15-20% de marge max
-- Une montre de luxe vintage peut avoir 50-200% de marge si bien sourcée
-- Des sneakers limitées neuves peuvent avoir 30-100% de marge
-- Du mobilier design vintage peut avoir 100-500% de marge
+IMPORTANT : Sois TRÈS inclusif. Dès qu'il y a une marge possible d'au moins 8%, c'est une pépite.
+- Un vêtement de marque à -10% du prix marché = pépite
+- Un objet électronique légèrement sous-coté = pépite
+- Un article de marque connue en dessous du prix habituel = pépite
+- Même les petites marges comptent pour un revendeur actif
 
 IMPORTANT : Extrais les URLs d'annonces et les images de produits RÉELLES visibles dans les captures (champs adUrl et adImageUrl). Ne génère pas de fausses URLs.
 
@@ -126,7 +126,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
   ]
 }
 
-Si tu trouves des annonces réelles sous-évaluées, retourne entre 1 et 5 pépites. Si tu ne vois aucune annonce réelle ou aucune bonne affaire, retourne : {"pepites": []}.`;
+Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en trouves. La moindre marge de 8% suffit. Si tu ne vois VRAIMENT aucune annonce réelle, retourne : {"pepites": []}.`;
 }
 
 function buildTextOnlyPrompt(merchantName: string, pageContent: string): string {
@@ -149,12 +149,12 @@ RÈGLE ABSOLUE : Tu ne dois JAMAIS inventer, simuler ou imaginer des annonces. T
 
 CRITÈRES DE SÉLECTION D'UNE PÉPITE :
 1. L'annonce DOIT être réellement présente dans les données extraites (titre ET prix visibles)
-2. Le prix demandé est au minimum 30% en dessous de la valeur marché
-3. Le produit a une demande forte et se revend facilement
-4. Le profit potentiel justifie l'effort (minimum 40€ de profit)
-5. L'état du produit est acceptable pour la revente
+2. Le prix demandé est au minimum 8% en dessous de la valeur marché de revente (même une petite marge compte !)
+3. Le produit peut se revendre (pas besoin que ce soit ultra-demandé)
+4. Tout profit est bon à prendre, même 5€ ou 10€
+5. L'état du produit semble acceptable pour la revente
 
-IMPORTANT : Sois réaliste dans tes estimations. Pas de profits fantaisistes.
+IMPORTANT : Sois TRÈS inclusif. Dès qu'il y a 8% de marge ou plus, c'est une pépite.
 
 Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce format exact :
 {
@@ -175,7 +175,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
   ]
 }
 
-Si tu trouves des annonces réelles sous-évaluées, retourne entre 1 et 5 pépites. Si aucune annonce réelle n'est trouvée ou si aucune n'est sous-évaluée, retourne : {"pepites": []}.`;
+Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en trouves. La moindre marge de 8% suffit. Si aucune annonce réelle n'est trouvée, retourne : {"pepites": []}.`;
 }
 
 function repairTruncatedJson(raw: string): { pepites: GeminiPepite[] } {
@@ -279,10 +279,10 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<Gemin
       },
     ],
     generationConfig: {
-      temperature: 0.7,
+      temperature: 0.4,
       topK: 40,
       topP: 0.95,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 16384,
       responseMimeType: 'application/json',
     },
   };

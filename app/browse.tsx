@@ -12,10 +12,28 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, Scan, Square, Zap, Shield, Video } from 'lucide-react-native';
+import { ArrowLeft, Scan, Square, Zap, Shield, Video, CheckCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePepite } from '@/providers/PepiteProvider';
+
+const SCAN_TIPS = [
+  'Scrollez lentement pour de meilleurs r\u00e9sultats',
+  'Passez bien sur chaque annonce',
+  'Restez sur les pages avec des prix visibles',
+  'Prenez votre temps, l\'IA capture tout',
+  'Concentrez-vous sur les bonnes cat\u00e9gories',
+  'Chaque scroll est analys\u00e9 par l\'IA',
+  'L\'IA d\u00e9tecte les marges d\u00e8s 8%',
+];
+
+const ANALYSIS_STEPS = [
+  'Captures envoy\u00e9es \u00e0 Gemini',
+  'Analyse des annonces d\u00e9tect\u00e9es',
+  '\u00c9valuation des prix du march\u00e9',
+  'Calcul des marges de revente',
+  'S\u00e9lection des meilleures p\u00e9pites',
+];
 
 const SCAN_DURATION_LIMIT = 30;
 const SCREENSHOT_INTERVAL = 4000;
@@ -151,7 +169,10 @@ export default function BrowseScreen() {
   const [showResults, setShowResults] = useState<boolean>(false);
   const [extractedContent, setExtractedContent] = useState<string>('');
   const [h2cReady, setH2cReady] = useState<boolean>(false);
-  const [frameCount, setFrameCount] = useState<number>(0);
+  const [currentTipIndex, setCurrentTipIndex] = useState<number>(0);
+  const [analysisStep, setAnalysisStep] = useState<number>(0);
+  const tipFadeAnim = useRef(new Animated.Value(1)).current;
+  const analysisProgressAnim = useRef(new Animated.Value(0)).current;
 
   const webViewRef = useRef<any>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -196,9 +217,17 @@ export default function BrowseScreen() {
         extractPageContent();
       }, 8000);
 
+      const tipInterval = setInterval(() => {
+        Animated.timing(tipFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
+          setCurrentTipIndex((prev) => (prev + 1) % SCAN_TIPS.length);
+          Animated.timing(tipFadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+        });
+      }, 4000);
+
       return () => {
         clearInterval(captureInterval);
         clearInterval(contentInterval);
+        clearInterval(tipInterval);
       };
     }
   }, [scanning]);
@@ -235,16 +264,47 @@ export default function BrowseScreen() {
   }, [scanning]);
 
   useEffect(() => {
+    if (showResults && isAnalyzing) {
+      setAnalysisStep(0);
+      analysisProgressAnim.setValue(0);
+      Animated.timing(overlayFade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+
+      Animated.timing(analysisProgressAnim, {
+        toValue: 0.9,
+        duration: 25000,
+        useNativeDriver: false,
+      }).start();
+
+      const stepInterval = setInterval(() => {
+        setAnalysisStep((prev) => {
+          if (prev < ANALYSIS_STEPS.length - 1) return prev + 1;
+          return prev;
+        });
+      }, 4000);
+
+      return () => clearInterval(stepInterval);
+    }
+  }, [showResults, isAnalyzing]);
+
+  useEffect(() => {
     if (showResults && !isAnalyzing && lastScanResults.length > 0) {
       console.log(`[Browse] Analysis complete: ${lastScanResults.length} pepites found`);
-      Animated.timing(overlayFade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      analysisProgressAnim.setValue(1);
+      setAnalysisStep(ANALYSIS_STEPS.length - 1);
     }
   }, [isAnalyzing, lastScanResults, showResults]);
 
   useEffect(() => {
+    if (showResults && !isAnalyzing && lastScanResults.length === 0 && !scanError) {
+      analysisProgressAnim.setValue(1);
+      setAnalysisStep(ANALYSIS_STEPS.length - 1);
+    }
+  }, [isAnalyzing, lastScanResults, showResults, scanError]);
+
+  useEffect(() => {
     if (showResults && scanError) {
       console.log('[Browse] Scan error:', scanError);
-      Animated.timing(overlayFade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      analysisProgressAnim.setValue(1);
     }
   }, [scanError, showResults]);
 
@@ -299,7 +359,6 @@ export default function BrowseScreen() {
       if (data.type === 'screenshot') {
         if (data.data && data.data.length > 100 && screenshotsRef.current.length < MAX_SCREENSHOTS) {
           screenshotsRef.current.push(data.data);
-          setFrameCount(screenshotsRef.current.length);
           console.log(`[Browse] Screenshot captured: frame ${screenshotsRef.current.length}, ${Math.round(data.size / 1024)}KB`);
         }
         return;
@@ -365,7 +424,7 @@ export default function BrowseScreen() {
     setExtractedContent('');
     extractedContentRef.current = '';
     screenshotsRef.current = [];
-    setFrameCount(0);
+    setCurrentTipIndex(0);
     startScan();
 
     initHtml2Canvas();
@@ -485,10 +544,9 @@ export default function BrowseScreen() {
               </Text>
             </View>
             <View style={styles.scanMeta}>
-              <View style={styles.frameBadge}>
-                <Video size={10} color={Colors.gold} />
-                <Text style={styles.frameCountText}>{frameCount} frames</Text>
-              </View>
+              <Animated.Text style={[styles.tipText, { opacity: tipFadeAnim }]} numberOfLines={1}>
+                {SCAN_TIPS[currentTipIndex]}
+              </Animated.Text>
               <View style={styles.progressMini}>
                 <View style={[styles.progressMiniFill, { width: `${progressPercent}%` as any }]} />
               </View>
@@ -563,27 +621,57 @@ export default function BrowseScreen() {
           <View style={styles.resultsCard}>
             {isAnalyzing ? (
               <View style={styles.analyzingContainer}>
-                <ActivityIndicator size="large" color={Colors.gold} />
-                <Text style={styles.analyzingText}>Analyse vidéo Gemini...</Text>
-                <Text style={styles.analyzingSubtext}>
-                  L'expert IA analyse {screenshotsRef.current.length} captures d'écran
-                </Text>
-                <View style={styles.analyzeStats}>
-                  <View style={styles.analyzeStat}>
-                    <Text style={styles.analyzeStatValue}>{screenshotsRef.current.length}</Text>
-                    <Text style={styles.analyzeStatLabel}>Frames</Text>
-                  </View>
-                  <View style={styles.analyzeStatDivider} />
-                  <View style={styles.analyzeStat}>
-                    <Text style={styles.analyzeStatValue}>{formatTime(scanTimeRef.current)}</Text>
-                    <Text style={styles.analyzeStatLabel}>Durée</Text>
-                  </View>
-                  <View style={styles.analyzeStatDivider} />
-                  <View style={styles.analyzeStat}>
-                    <Text style={styles.analyzeStatValue}>{Math.round(screenshotsRef.current.reduce((s, f) => s + f.length, 0) / 1024)}K</Text>
-                    <Text style={styles.analyzeStatLabel}>Données</Text>
-                  </View>
+                <Text style={styles.analyzingEmoji}>🧠</Text>
+                <Text style={styles.analyzingText}>Analyse en cours...</Text>
+
+                <View style={styles.analysisProgressBar}>
+                  <Animated.View
+                    style={[
+                      styles.analysisProgressFill,
+                      {
+                        width: analysisProgressAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0%', '100%'],
+                        }),
+                      },
+                    ]}
+                  />
                 </View>
+
+                <View style={styles.analysisSteps}>
+                  {ANALYSIS_STEPS.map((step, i) => {
+                    const isActive = i === analysisStep;
+                    const isDone = i < analysisStep;
+                    return (
+                      <View key={i} style={styles.analysisStepRow}>
+                        <View style={[
+                          styles.stepDot,
+                          isDone && styles.stepDotDone,
+                          isActive && styles.stepDotActive,
+                        ]}>
+                          {isDone ? (
+                            <CheckCircle size={14} color={Colors.success} />
+                          ) : isActive ? (
+                            <ActivityIndicator size="small" color={Colors.gold} />
+                          ) : (
+                            <View style={styles.stepDotEmpty} />
+                          )}
+                        </View>
+                        <Text style={[
+                          styles.stepLabel,
+                          isDone && styles.stepLabelDone,
+                          isActive && styles.stepLabelActive,
+                        ]}>
+                          {step}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.analyzingSubtext}>
+                  Gemini analyse {screenshotsRef.current.length} captures · {formatTime(scanTimeRef.current)} de scan
+                </Text>
               </View>
             ) : scanError ? (
               <View style={styles.resultContent}>
@@ -772,19 +860,11 @@ const styles = StyleSheet.create({
     gap: 6,
     alignItems: 'flex-end',
   },
-  frameBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,215,0,0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  frameCountText: {
+  tipText: {
     color: Colors.gold,
     fontSize: 11,
-    fontWeight: '700' as const,
+    fontWeight: '600' as const,
+    textAlign: 'right',
   },
   progressMini: {
     width: '100%',
@@ -902,50 +982,79 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   analyzingContainer: {
-    padding: 32,
+    padding: 28,
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+  },
+  analyzingEmoji: {
+    fontSize: 40,
+    marginBottom: 4,
   },
   analyzingText: {
     color: Colors.text,
-    fontSize: 18,
-    fontWeight: '700' as const,
-    marginTop: 8,
+    fontSize: 20,
+    fontWeight: '800' as const,
+    marginBottom: 12,
   },
   analyzingSubtext: {
-    color: Colors.textSecondary,
-    fontSize: 14,
+    color: Colors.textMuted,
+    fontSize: 12,
     textAlign: 'center',
+    marginTop: 12,
   },
-  analyzeStats: {
+  analysisProgressBar: {
+    width: '100%',
+    height: 5,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  analysisProgressFill: {
+    height: '100%',
+    backgroundColor: Colors.gold,
+    borderRadius: 3,
+  },
+  analysisSteps: {
+    alignSelf: 'stretch',
+    gap: 14,
+  },
+  analysisStepRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 16,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
     gap: 12,
   },
-  analyzeStat: {
-    flex: 1,
+  stepDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
-    gap: 2,
+    justifyContent: 'center',
   },
-  analyzeStatValue: {
-    color: Colors.gold,
-    fontSize: 16,
-    fontWeight: '800' as const,
+  stepDotDone: {
+    backgroundColor: 'rgba(0, 200, 83, 0.15)',
   },
-  analyzeStatLabel: {
+  stepDotActive: {
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+  },
+  stepDotEmpty: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.textMuted,
+    opacity: 0.4,
+  },
+  stepLabel: {
     color: Colors.textMuted,
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '500' as const,
   },
-  analyzeStatDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: Colors.divider,
+  stepLabelDone: {
+    color: Colors.success,
+  },
+  stepLabelActive: {
+    color: Colors.gold,
+    fontWeight: '600' as const,
   },
   resultContent: {
     padding: 28,
