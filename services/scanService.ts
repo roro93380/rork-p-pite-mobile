@@ -88,14 +88,16 @@ ${pageContent ? `\nDonnées textuelles extraites en complément :\n---\n${pageCo
 
 MISSION :
 Analyse CHAQUE image/frame attentivement. Regarde les annonces visibles : titres, prix, photos des produits, descriptions.
-Identifie les VRAIES bonnes affaires visibles dans ces captures.
-Si tu vois des annonces réelles avec des prix, analyse-les. Sinon, base-toi sur le type de produits typiquement vendus sur ${merchantName}.
+Identifie les VRAIES bonnes affaires RÉELLEMENT VISIBLES dans ces captures.
+
+RÈGLE ABSOLUE : Tu ne dois JAMAIS inventer, simuler ou imaginer des annonces. Tu dois UNIQUEMENT rapporter des annonces que tu vois RÉELLEMENT dans les captures d'écran ou dans les données textuelles extraites. Si tu ne vois aucune annonce réelle avec un titre et un prix, retourne un tableau vide : {"pepites": []}.
 
 CRITÈRES DE SÉLECTION D'UNE PÉPITE :
-1. Le prix demandé est au minimum 30% en dessous de la valeur marché
-2. Le produit a une demande forte et se revend facilement
-3. Le profit potentiel justifie l'effort (minimum 40€ de profit)
-4. L'état du produit est acceptable pour la revente
+1. L'annonce DOIT être réellement visible dans les captures ou les données textuelles (titre ET prix visibles)
+2. Le prix demandé est au minimum 30% en dessous de la valeur marché
+3. Le produit a une demande forte et se revend facilement
+4. Le profit potentiel justifie l'effort (minimum 40€ de profit)
+5. L'état du produit est acceptable pour la revente
 
 IMPORTANT : Sois réaliste dans tes estimations. Pas de profits fantaisistes.
 - Un iPhone d'occasion se revend sur certaines plateformes avec 15-20% de marge max
@@ -103,28 +105,28 @@ IMPORTANT : Sois réaliste dans tes estimations. Pas de profits fantaisistes.
 - Des sneakers limitées neuves peuvent avoir 30-100% de marge
 - Du mobilier design vintage peut avoir 100-500% de marge
 
-IMPORTANT : Si tu vois des URLs d'annonces ou des images de produits dans les captures, INCLUS-LES dans ta réponse (champs adUrl et adImageUrl).
+IMPORTANT : Extrais les URLs d'annonces et les images de produits RÉELLES visibles dans les captures (champs adUrl et adImageUrl). Ne génère pas de fausses URLs.
 
 Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce format exact :
 {
   "pepites": [
     {
-      "title": "Nom précis du produit (marque, modèle, taille/ref si pertinent)",
+      "title": "Nom EXACT du produit tel que vu dans l'annonce",
       "sellerPrice": 0,
       "estimatedValue": 0,
       "profit": 0,
       "source": "${merchantName}",
-      "sourceUrl": "URL réelle ou plausible de l'annonce sur ${merchantName}",
+      "sourceUrl": "URL réelle de l'annonce extraite des captures ou des données",
       "category": "Catégorie (Montres, Sneakers, Luxe, Électronique, Retro Gaming, Mode, Bijoux, Mobilier, Art, Vinyles)",
       "description": "Explication experte de pourquoi c'est une bonne affaire : état estimé, raison de la sous-évaluation, où et comment revendre, délai de revente estimé",
       "imageKeyword": "mot-clé anglais simple pour trouver une image (watch, sneakers, handbag, phone, laptop, console, jewelry, furniture, camera, vintage, gaming, clothing, bag, bike, book, vinyl, electronics, art, shoes)",
-      "adUrl": "URL directe vers l'annonce si visible dans les captures, sinon URL de recherche sur la plateforme",
-      "adImageUrl": "URL de l'image du produit si visible dans les captures, sinon chaîne vide"
+      "adUrl": "URL directe vers l'annonce RÉELLE extraite des captures",
+      "adImageUrl": "URL de l'image du produit RÉELLE extraite des captures, sinon chaîne vide"
     }
   ]
 }
 
-Génère entre 2 et 5 pépites réalistes basées sur ce que tu vois dans les captures. Varie les catégories.`;
+Si tu trouves des annonces réelles sous-évaluées, retourne entre 1 et 5 pépites. Si tu ne vois aucune annonce réelle ou aucune bonne affaire, retourne : {"pepites": []}.`;
 }
 
 function buildTextOnlyPrompt(merchantName: string, pageContent: string): string {
@@ -138,16 +140,19 @@ TON EXPERTISE :
 
 CONTEXTE DU SCAN :
 L'utilisateur navigue sur "${merchantName}".
-${pageContent ? `Voici le contenu extrait de la page :\n---\n${pageContent.substring(0, 8000)}\n---` : `Analyse les types de produits typiquement vendus sur ${merchantName}.`}
+${pageContent ? `Voici le contenu RÉEL extrait de la page :\n---\n${pageContent.substring(0, 8000)}\n---` : `ATTENTION : Aucune donnée de page n'a pu être extraite. Retourne un tableau vide.`}
 
 MISSION :
-Analyse le contenu et identifie les VRAIES bonnes affaires. Si le contenu de la page contient des annonces réelles, analyse-les. Sinon, génère des exemples réalistes basés sur ce qu'on trouve typiquement sur ${merchantName}.
+Analyse UNIQUEMENT le contenu RÉEL fourni ci-dessus. Identifie les bonnes affaires parmi les annonces RÉELLEMENT présentes dans les données.
+
+RÈGLE ABSOLUE : Tu ne dois JAMAIS inventer, simuler ou imaginer des annonces. Tu dois UNIQUEMENT rapporter des annonces RÉELLEMENT présentes dans les données extraites ci-dessus. Si les données ne contiennent aucune annonce avec un titre et un prix, ou si aucune donnée n'a été extraite, retourne : {"pepites": []}
 
 CRITÈRES DE SÉLECTION D'UNE PÉPITE :
-1. Le prix demandé est au minimum 30% en dessous de la valeur marché
-2. Le produit a une demande forte et se revend facilement
-3. Le profit potentiel justifie l'effort (minimum 40€ de profit)
-4. L'état du produit est acceptable pour la revente
+1. L'annonce DOIT être réellement présente dans les données extraites (titre ET prix visibles)
+2. Le prix demandé est au minimum 30% en dessous de la valeur marché
+3. Le produit a une demande forte et se revend facilement
+4. Le profit potentiel justifie l'effort (minimum 40€ de profit)
+5. L'état du produit est acceptable pour la revente
 
 IMPORTANT : Sois réaliste dans tes estimations. Pas de profits fantaisistes.
 
@@ -155,22 +160,22 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
 {
   "pepites": [
     {
-      "title": "Nom précis du produit (marque, modèle, taille/ref si pertinent)",
+      "title": "Nom EXACT du produit tel que vu dans l'annonce",
       "sellerPrice": 0,
       "estimatedValue": 0,
       "profit": 0,
       "source": "${merchantName}",
-      "sourceUrl": "URL réelle ou plausible de l'annonce sur ${merchantName}",
+      "sourceUrl": "URL réelle de l'annonce extraite des données",
       "category": "Catégorie (Montres, Sneakers, Luxe, Électronique, Retro Gaming, Mode, Bijoux, Mobilier, Art, Vinyles)",
       "description": "Explication experte de pourquoi c'est une bonne affaire",
       "imageKeyword": "mot-clé anglais simple pour trouver une image",
-      "adUrl": "URL directe vers l'annonce si disponible",
-      "adImageUrl": "URL de l'image du produit si disponible, sinon chaîne vide"
+      "adUrl": "URL directe vers l'annonce RÉELLE extraite des données",
+      "adImageUrl": "URL de l'image du produit RÉELLE extraite des données, sinon chaîne vide"
     }
   ]
 }
 
-Génère entre 2 et 5 pépites réalistes. Varie les catégories.`;
+Si tu trouves des annonces réelles sous-évaluées, retourne entre 1 et 5 pépites. Si aucune annonce réelle n'est trouvée ou si aucune n'est sous-évaluée, retourne : {"pepites": []}.`;
 }
 
 function repairTruncatedJson(raw: string): { pepites: GeminiPepite[] } {
