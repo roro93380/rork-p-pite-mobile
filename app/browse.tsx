@@ -39,7 +39,15 @@ const SCAN_DURATION_LIMIT = 30;
 const SCREENSHOT_INTERVAL = 4000;
 const MAX_SCREENSHOTS = 8;
 
-const INIT_HTML2CANVAS_JS = `
+const H2C_CDNS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+  'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+  'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js',
+];
+
+function buildInitH2cJs(cdnIndex: number): string {
+  const cdn = H2C_CDNS[cdnIndex % H2C_CDNS.length];
+  return `
 (function() {
   if (window._h2cLoaded) {
     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'h2c_ready' }));
@@ -48,7 +56,7 @@ const INIT_HTML2CANVAS_JS = `
   if (window._h2cLoading) return;
   window._h2cLoading = true;
   var s = document.createElement('script');
-  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+  s.src = '${cdn}';
   s.onload = function() {
     window._h2cLoaded = true;
     window._h2cLoading = false;
@@ -56,17 +64,18 @@ const INIT_HTML2CANVAS_JS = `
   };
   s.onerror = function() {
     window._h2cLoading = false;
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'h2c_error', error: 'Failed to load html2canvas' }));
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'h2c_error', error: 'Failed to load from ${cdn}', cdnIndex: ${cdnIndex} }));
   };
   document.head.appendChild(s);
 })();
 true;
 `;
+}
 
 const CAPTURE_SCREENSHOT_JS = `
 (function() {
   if (!window.html2canvas) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: 'html2canvas not loaded' }));
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: 'html2canvas not loaded', needsReload: true }));
     return;
   }
   try {
@@ -75,20 +84,26 @@ const CAPTURE_SCREENSHOT_JS = `
       height: window.innerHeight,
       x: 0,
       y: window.scrollY,
-      scale: 0.5,
+      scale: 0.4,
       useCORS: true,
       allowTaint: true,
       logging: false,
-      imageTimeout: 3000
+      imageTimeout: 5000,
+      foreignObjectRendering: false,
+      removeContainer: true
     }).then(function(canvas) {
-      var dataUrl = canvas.toDataURL('image/jpeg', 0.4);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.35);
       var base64 = dataUrl.split(',')[1] || '';
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot', data: base64, size: base64.length }));
+      if (base64.length > 500) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot', data: base64, size: base64.length }));
+      } else {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: 'Capture too small: ' + base64.length + ' bytes' }));
+      }
     }).catch(function(err) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: err.message }));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: 'h2c render fail: ' + err.message }));
     });
   } catch(e) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: e.message }));
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: 'h2c exception: ' + e.message }));
   }
 })();
 true;
@@ -359,6 +374,9 @@ export default function BrowseScreen() {
   const [h2cReady, setH2cReady] = useState<boolean>(false);
   const [currentTipIndex, setCurrentTipIndex] = useState<number>(0);
   const [analysisStep, setAnalysisStep] = useState<number>(0);
+  const [screenshotCount, setScreenshotCount] = useState<number>(0);
+  const [contentExtracted, setContentExtracted] = useState<boolean>(false);
+  const [h2cLoadAttempts, setH2cLoadAttempts] = useState<number>(0);
   const tipFadeAnim = useRef(new Animated.Value(1)).current;
   const analysisProgressAnim = useRef(new Animated.Value(0)).current;
 
@@ -395,7 +413,7 @@ export default function BrowseScreen() {
 
   useEffect(() => {
     if (scanning) {
-      captureScreenshot();
+      setTimeout(() => captureScreenshot(), 1500);
 
       const captureInterval = setInterval(() => {
         captureScreenshot();
@@ -403,7 +421,7 @@ export default function BrowseScreen() {
 
       const contentInterval = setInterval(() => {
         extractPageContent();
-      }, 8000);
+      }, 5000);
 
       const tipInterval = setInterval(() => {
         Animated.timing(tipFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
@@ -496,11 +514,12 @@ export default function BrowseScreen() {
     }
   }, [scanError, showResults]);
 
-  const initHtml2Canvas = useCallback(() => {
+  const initHtml2Canvas = useCallback((attempt: number = 0) => {
     if (Platform.OS !== 'web' && webViewRef.current) {
       try {
-        webViewRef.current.injectJavaScript(INIT_HTML2CANVAS_JS);
-        console.log('[Browse] Injected html2canvas init script');
+        const js = buildInitH2cJs(attempt);
+        webViewRef.current.injectJavaScript(js);
+        console.log(`[Browse] Injected html2canvas init script (CDN #${attempt % H2C_CDNS.length})`);
       } catch (e) {
         console.log('[Browse] Failed to inject html2canvas:', e);
       }
@@ -541,19 +560,35 @@ export default function BrowseScreen() {
 
       if (data.type === 'h2c_error') {
         console.log('[Browse] html2canvas load error:', data.error);
+        const nextAttempt = (data.cdnIndex ?? 0) + 1;
+        if (nextAttempt < H2C_CDNS.length * 2) {
+          console.log(`[Browse] Retrying html2canvas with CDN #${nextAttempt % H2C_CDNS.length}`);
+          setH2cLoadAttempts(nextAttempt);
+          setTimeout(() => initHtml2Canvas(nextAttempt), 1000);
+        } else {
+          console.log('[Browse] All html2canvas CDNs failed, will rely on text extraction only');
+        }
         return;
       }
 
       if (data.type === 'screenshot') {
-        if (data.data && data.data.length > 100 && screenshotsRef.current.length < MAX_SCREENSHOTS) {
+        if (data.data && data.data.length > 500 && screenshotsRef.current.length < MAX_SCREENSHOTS) {
           screenshotsRef.current.push(data.data);
-          console.log(`[Browse] Screenshot captured: frame ${screenshotsRef.current.length}, ${Math.round(data.size / 1024)}KB`);
+          const count = screenshotsRef.current.length;
+          setScreenshotCount(count);
+          console.log(`[Browse] ✅ Screenshot captured: frame ${count}/${MAX_SCREENSHOTS}, ${Math.round(data.size / 1024)}KB`);
+        } else {
+          console.log(`[Browse] Screenshot rejected: data=${data.data?.length ?? 0} bytes, current=${screenshotsRef.current.length}/${MAX_SCREENSHOTS}`);
         }
         return;
       }
 
       if (data.type === 'screenshot_error') {
         console.log('[Browse] Screenshot capture error:', data.error);
+        if (data.needsReload) {
+          console.log('[Browse] html2canvas not loaded, attempting reload...');
+          initHtml2Canvas(h2cLoadAttempts);
+        }
         return;
       }
 
@@ -577,12 +612,17 @@ export default function BrowseScreen() {
         }
 
         if (data.bodyText) {
-          content += `\nContenu de la page:\n${data.bodyText.substring(0, 3000)}`;
+          content += `\nContenu de la page:\n${data.bodyText.substring(0, 5000)}`;
         }
 
-        extractedContentRef.current = content;
-        setExtractedContent(content);
-        console.log(`[Browse] Content extracted: ${content.length} chars`);
+        if (content.length > extractedContentRef.current.length) {
+          extractedContentRef.current = content;
+          setExtractedContent(content);
+          setContentExtracted(true);
+          console.log(`[Browse] ✅ Content updated: ${content.length} chars, ${data.items?.length ?? 0} items`);
+        } else {
+          console.log(`[Browse] Content not updated (existing ${extractedContentRef.current.length} >= new ${content.length})`);
+        }
       }
     } catch (e) {
       console.log('[Browse] Failed to parse WebView message:', e);
@@ -632,6 +672,8 @@ export default function BrowseScreen() {
     setExtractedContent('');
     extractedContentRef.current = '';
     screenshotsRef.current = [];
+    setScreenshotCount(0);
+    setContentExtracted(false);
     setCurrentTipIndex(0);
     startScan();
 
@@ -644,10 +686,17 @@ export default function BrowseScreen() {
       }, 8000);
       setTimeout(() => clearInterval(webFetchInterval), 35000);
     } else {
-      initHtml2Canvas();
-      setTimeout(() => extractPageContent(), 2000);
+      initHtml2Canvas(0);
+      extractPageContent();
+      setTimeout(() => extractPageContent(), 1500);
+      setTimeout(() => {
+        if (!h2cReady) {
+          console.log('[Browse] html2canvas still not ready after 3s, retrying...');
+          initHtml2Canvas(1);
+        }
+      }, 3000);
     }
-  }, [startScan, name, settings.geminiApiKey, extractPageContent, initHtml2Canvas, router, fetchWebContent]);
+  }, [startScan, name, settings.geminiApiKey, extractPageContent, initHtml2Canvas, router, fetchWebContent, h2cReady]);
 
   const doStopScan = useCallback(async () => {
     console.log('[Browse] === doStopScan called ===');
@@ -781,7 +830,7 @@ export default function BrowseScreen() {
             <View style={styles.scanIndicatorLeft}>
               <Animated.View style={[styles.recDotSmall, { opacity: dotOpacity }]} />
               <Text style={styles.scanIndicatorText}>
-                REC · {formatTime(scanTime)}
+                REC · {formatTime(scanTime)} · 📸 {screenshotCount}
               </Text>
             </View>
             <View style={styles.scanMeta}>
@@ -805,7 +854,8 @@ export default function BrowseScreen() {
             onLoadEnd={() => {
               console.log('[Browse] Page loaded');
               setPageLoaded(true);
-              initHtml2Canvas();
+              initHtml2Canvas(0);
+              setTimeout(() => extractPageContent(), 1000);
             }}
             onMessage={handleWebViewMessage}
             startInLoadingState
@@ -911,7 +961,7 @@ export default function BrowseScreen() {
                 </View>
 
                 <Text style={styles.analyzingSubtext}>
-                  Gemini analyse {screenshotsRef.current.length} captures · {formatTime(scanTimeRef.current)} de scan
+                  Gemini analyse {screenshotCount} capture{screenshotCount > 1 ? 's' : ''}{contentExtracted ? ' + contenu texte' : ''} · {formatTime(scanTimeRef.current)} de scan
                 </Text>
               </View>
             ) : scanError ? (
