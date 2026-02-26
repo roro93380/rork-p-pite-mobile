@@ -5,50 +5,63 @@ import {
   StyleSheet,
   Animated,
   Platform,
-  Dimensions,
-  Alert,
+  TouchableOpacity,
   ActivityIndicator,
+  ScrollView,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
-import { Radio, AlertCircle, CheckCircle } from 'lucide-react-native';
+import { AlertCircle, CheckCircle, Globe, ChevronLeft, StopCircle, Search } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { WebView } from 'react-native-webview';
+import { captureRef } from 'react-native-view-shot';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '@/constants/colors';
 import GoldButton from '@/components/GoldButton';
 import { usePepite } from '@/providers/PepiteProvider';
+import { MERCHANTS } from '@/mocks/merchants';
+
+const CAPTURE_INTERVAL_MS = 2500;
+const SCAN_DURATION_LIMIT = 30;
 
 const SCAN_TIPS = [
-  'Scrollez lentement pour de meilleurs r\u00e9sultats',
+  'Scrollez lentement pour de meilleurs résultats',
   'Passez bien sur chaque annonce',
   'Restez sur les pages avec des prix visibles',
   'Prenez votre temps, l\'IA capture tout',
-  'Concentrez-vous sur les bonnes cat\u00e9gories',
-  'Chaque scroll est analys\u00e9 par l\'IA',
-  'L\'IA d\u00e9tecte les marges d\u00e8s 8%',
+  'Concentrez-vous sur les bonnes catégories',
 ];
 
 const ANALYSIS_STEPS = [
-  'Captures envoy\u00e9es \u00e0 Gemini',
-  'Analyse des annonces d\u00e9tect\u00e9es',
-  '\u00c9valuation des prix du march\u00e9',
-  'Calcul des marges de revente',
-  'S\u00e9lection des meilleures p\u00e9pites',
+  'Préparation des captures',
+  'Envoi à Gemini',
+  'Analyse des annonces détectées',
+  'Évaluation des prix du marché',
+  'Sélection des meilleures pépites',
 ];
-
-const SCAN_DURATION_LIMIT = 30;
 
 export default function ScanScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { startScan, stopScan, isScanning, isAnalyzing, lastScanResults, scanError, settings } = usePepite();
-  const [timer, setTimer] = useState<number>(0);
-  const [phase, setPhase] = useState<'recording' | 'analyzing' | 'done' | 'error'>(
-    'recording'
-  );
 
+  const [phase, setPhase] = useState<'setup' | 'recording' | 'analyzing' | 'done' | 'error'>('setup');
+  const [selectedUrl, setSelectedUrl] = useState<string>('');
+  const [selectedMerchant, setSelectedMerchant] = useState<string>('');
+  const [customUrl, setCustomUrl] = useState<string>('');
+  const [timer, setTimer] = useState<number>(0);
+  const [captureCount, setCaptureCount] = useState<number>(0);
   const [currentTipIndex, setCurrentTipIndex] = useState<number>(0);
   const [analysisStep, setAnalysisStep] = useState<number>(0);
 
+  const webViewRef = useRef<View>(null);
+  const screenshotsRef = useRef<string[]>([]);
+  const captureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isCapturingRef = useRef<boolean>(false);
+
   const pulseAnim = useRef(new Animated.Value(0.6)).current;
-  const ringScale = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const dotAnim = useRef(new Animated.Value(0)).current;
   const tipFadeAnim = useRef(new Animated.Value(1)).current;
@@ -63,51 +76,34 @@ export default function ScanScreen() {
           { text: 'Configurer', onPress: () => router.replace('/settings/api-key' as any) },
         ]
       );
-      return;
     }
-
-    startScan();
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    }
-
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0.6, duration: 1000, useNativeDriver: true }),
-      ])
-    );
-    pulse.start();
-
-    const ring = Animated.loop(
-      Animated.sequence([
-        Animated.timing(ringScale, { toValue: 1.3, duration: 1500, useNativeDriver: true }),
-        Animated.timing(ringScale, { toValue: 1, duration: 1500, useNativeDriver: true }),
-      ])
-    );
-    ring.start();
-
-    return () => {
-      pulse.stop();
-      ring.stop();
-    };
   }, []);
 
   useEffect(() => {
     if (phase !== 'recording') return;
-    const interval = setInterval(() => {
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.4, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+
+    timerIntervalRef.current = setInterval(() => {
       setTimer((t) => t + 1);
     }, 1000);
 
     const tipInterval = setInterval(() => {
-      Animated.timing(tipFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
+      Animated.timing(tipFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
         setCurrentTipIndex((prev) => (prev + 1) % SCAN_TIPS.length);
-        Animated.timing(tipFadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+        Animated.timing(tipFadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
       });
     }, 4000);
 
     return () => {
-      clearInterval(interval);
+      pulse.stop();
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
       clearInterval(tipInterval);
     };
   }, [phase]);
@@ -184,31 +180,98 @@ export default function ScanScreen() {
     }
   }, [phase]);
 
-  const formatTimer = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
+  const captureScreenshot = useCallback(async () => {
+    if (isCapturingRef.current || !webViewRef.current) return;
+    isCapturingRef.current = true;
+
+    try {
+      const base64 = await captureRef(webViewRef, {
+        format: 'jpg',
+        quality: 0.5,
+        result: 'base64',
+      });
+
+      if (base64 && base64.length > 100) {
+        screenshotsRef.current.push(base64);
+        setCaptureCount(screenshotsRef.current.length);
+        console.log(`[ScanScreen] Captured frame #${screenshotsRef.current.length} (${Math.round(base64.length / 1024)}KB)`);
+      }
+    } catch (err) {
+      console.warn('[ScanScreen] Capture failed:', err);
+    } finally {
+      isCapturingRef.current = false;
+    }
+  }, []);
+
+  const startRecording = useCallback((url: string, merchantName: string) => {
+    console.log(`[ScanScreen] Starting recording for ${merchantName} at ${url}`);
+    setSelectedUrl(url);
+    setSelectedMerchant(merchantName);
+    screenshotsRef.current = [];
+    setCaptureCount(0);
+    setTimer(0);
+    setPhase('recording');
+    startScan();
+
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }
+
+    setTimeout(() => {
+      captureIntervalRef.current = setInterval(() => {
+        captureScreenshot();
+      }, CAPTURE_INTERVAL_MS);
+    }, 2000);
+  }, [startScan, captureScreenshot]);
+
+  const handleMerchantSelect = useCallback((merchant: typeof MERCHANTS[0]) => {
+    startRecording(merchant.url, merchant.name);
+  }, [startRecording]);
+
+  const handleCustomUrl = useCallback(() => {
+    let url = customUrl.trim();
+    if (!url) return;
+    if (!url.startsWith('http')) {
+      url = 'https://' + url;
+    }
+    const hostname = url.replace(/^https?:\/\//, '').split('/')[0];
+    startRecording(url, hostname);
+  }, [customUrl, startRecording]);
 
   const handleStop = useCallback(() => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
-    console.log(`[ScanScreen] Stopping scan after ${timer}s`);
+
+    if (captureIntervalRef.current) {
+      clearInterval(captureIntervalRef.current);
+      captureIntervalRef.current = null;
+    }
+
+    const frames = [...screenshotsRef.current];
+    console.log(`[ScanScreen] Stopping scan after ${timer}s with ${frames.length} frames`);
+
     setPhase('analyzing');
-    stopScan('Shopping', '');
-  }, [stopScan, timer]);
+    stopScan(selectedMerchant, '', frames);
+  }, [stopScan, timer, selectedMerchant]);
 
   const handleViewResults = useCallback(() => {
     router.replace('/');
   }, [router]);
 
   const handleRetry = useCallback(() => {
-    setPhase('recording');
+    setPhase('setup');
     setTimer(0);
+    setCaptureCount(0);
+    screenshotsRef.current = [];
     progressAnim.setValue(0);
-    startScan();
-  }, [startScan, progressAnim]);
+  }, [progressAnim]);
+
+  const formatTimer = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   const progressWidth = progressAnim.interpolate({
     inputRange: [0, 1],
@@ -223,52 +286,127 @@ export default function ScanScreen() {
     <View style={styles.screen}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {phase === 'recording' && (
-        <View style={styles.recordingView}>
-          <View style={styles.recIndicator}>
-            <View style={styles.recDot} />
-            <Text style={styles.recText}>SCAN EN COURS</Text>
+      {phase === 'setup' && (
+        <View style={[styles.setupView, { paddingTop: insets.top + 12 }]}>
+          <View style={styles.setupHeader}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+              <ChevronLeft size={24} color={Colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.setupTitle}>Scanner un site</Text>
+            <View style={{ width: 40 }} />
           </View>
 
-          <View style={styles.circleContainer}>
-            <Animated.View
-              style={[
-                styles.outerRing,
-                {
-                  transform: [{ scale: ringScale }],
-                  opacity: pulseAnim,
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.middleRing,
-                { opacity: pulseAnim },
-              ]}
-            />
-            <View style={styles.innerCircle}>
-              <Radio size={40} color={Colors.recording} />
-              <Text style={styles.timerText}>{formatTimer(timer)}</Text>
+          <Text style={styles.setupSubtitle}>
+            Choisissez un site, naviguez sur les annonces, et l'IA capture automatiquement votre écran.
+          </Text>
+
+          <View style={styles.urlInputRow}>
+            <View style={styles.urlInputContainer}>
+              <Globe size={18} color={Colors.textMuted} />
+              <TextInput
+                style={styles.urlInput}
+                placeholder="Entrez une URL..."
+                placeholderTextColor={Colors.textMuted}
+                value={customUrl}
+                onChangeText={setCustomUrl}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                onSubmitEditing={handleCustomUrl}
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.goBtn, !customUrl.trim() && styles.goBtnDisabled]}
+              onPress={handleCustomUrl}
+              disabled={!customUrl.trim()}
+            >
+              <Search size={18} color={Colors.background} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.sectionLabel}>Sites populaires</Text>
+
+          <ScrollView style={styles.merchantList} showsVerticalScrollIndicator={false}>
+            {MERCHANTS.map((m) => (
+              <TouchableOpacity
+                key={m.id}
+                style={styles.merchantRow}
+                onPress={() => handleMerchantSelect(m)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.merchantIcon, { backgroundColor: m.color + '20' }]}>
+                  <Text style={styles.merchantEmoji}>{m.logo}</Text>
+                </View>
+                <View style={styles.merchantInfo}>
+                  <Text style={styles.merchantName}>{m.name}</Text>
+                  <Text style={styles.merchantDesc}>{m.description}</Text>
+                </View>
+                <ChevronLeft size={18} color={Colors.textMuted} style={{ transform: [{ rotate: '180deg' }] }} />
+              </TouchableOpacity>
+            ))}
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </View>
+      )}
+
+      {phase === 'recording' && (
+        <View style={styles.recordingContainer}>
+          <View
+            ref={webViewRef}
+            style={styles.webViewContainer}
+            collapsable={false}
+          >
+            {Platform.OS === 'web' ? (
+              <View style={styles.webFallback}>
+                <Globe size={48} color={Colors.textMuted} />
+                <Text style={styles.webFallbackText}>
+                  Le scan WebView n'est pas disponible sur le web.{'\n'}Utilisez l'app mobile (Expo Go).
+                </Text>
+              </View>
+            ) : (
+              <WebView
+                source={{ uri: selectedUrl }}
+                style={styles.webView}
+                javaScriptEnabled
+                domStorageEnabled
+                startInLoadingState
+                renderLoading={() => (
+                  <View style={styles.webViewLoading}>
+                    <ActivityIndicator size="large" color={Colors.gold} />
+                    <Text style={styles.loadingText}>Chargement...</Text>
+                  </View>
+                )}
+              />
+            )}
+          </View>
+
+          <View style={[styles.recordingOverlayTop, { top: insets.top }]}>
+            <Animated.View style={[styles.recDot, { opacity: pulseAnim }]} />
+            <Text style={styles.recLabel}>REC</Text>
+            <Text style={styles.recTimer}>{formatTimer(timer)}</Text>
+            <View style={styles.recCaptures}>
+              <Text style={styles.recCaptureCount}>{captureCount} 📸</Text>
             </View>
           </View>
 
-          <View style={styles.timerBar}>
+          <View style={styles.recordingTimerBar}>
             <View style={[styles.timerBarFill, { width: `${progressPercent}%` as any }]} />
           </View>
-          <Text style={styles.timerLimit}>
-            Arrêt auto dans {SCAN_DURATION_LIMIT - timer}s
-          </Text>
 
-          <Animated.Text style={[styles.instructions, { opacity: tipFadeAnim }]}>
-            {SCAN_TIPS[currentTipIndex]}
-          </Animated.Text>
+          <View style={[styles.recordingOverlayBottom, { bottom: insets.bottom + 12 }]}>
+            <Animated.Text style={[styles.tipText, { opacity: tipFadeAnim }]}>
+              💡 {SCAN_TIPS[currentTipIndex]}
+            </Animated.Text>
 
-          <GoldButton
-            title="Arrêter le scan"
-            onPress={handleStop}
-            variant="outlined"
-            style={styles.stopButton}
-          />
+            <TouchableOpacity
+              style={styles.stopBtn}
+              onPress={handleStop}
+              activeOpacity={0.8}
+            >
+              <StopCircle size={24} color="#fff" />
+              <Text style={styles.stopBtnText}>Arrêter le scan</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -281,13 +419,11 @@ export default function ScanScreen() {
 
           <Text style={styles.analyzingTitle}>Analyse en cours...</Text>
           <Text style={styles.analyzingSubtitle}>
-            L'expert IA détecte les pépites cachées
+            {captureCount} captures envoyées à l'IA
           </Text>
 
           <View style={styles.progressBar}>
-            <Animated.View
-              style={[styles.progressFill, { width: progressWidth }]}
-            />
+            <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
           </View>
 
           <View style={styles.stepsContainer}>
@@ -322,7 +458,7 @@ export default function ScanScreen() {
           </View>
 
           <Text style={styles.scanDurationNote}>
-            Scan de {formatTimer(timer)} analysé par Gemini
+            Scan de {formatTimer(timer)} sur {selectedMerchant}
           </Text>
         </View>
       )}
@@ -336,7 +472,7 @@ export default function ScanScreen() {
           <Text style={styles.doneSubtitle}>
             {lastScanResults.length > 0
               ? `${lastScanResults.length} pépite${lastScanResults.length > 1 ? 's' : ''} détectée${lastScanResults.length > 1 ? 's' : ''}\n+${formattedProfit}€ de profit potentiel`
-              : 'Essayez de naviguer vers plus d\'annonces pour trouver des pépites.'}
+              : 'Essayez de scroller plus lentement sur les annonces.'}
           </Text>
 
           {lastScanResults.length > 0 && (
@@ -360,6 +496,14 @@ export default function ScanScreen() {
             onPress={handleViewResults}
             style={styles.resultsButton}
           />
+          {lastScanResults.length === 0 && (
+            <GoldButton
+              title="Réessayer"
+              onPress={handleRetry}
+              variant="outlined"
+              style={styles.retryButtonDone}
+            />
+          )}
         </View>
       )}
 
@@ -368,7 +512,7 @@ export default function ScanScreen() {
           <AlertCircle size={64} color={Colors.danger} />
           <Text style={styles.errorTitle}>Erreur d'analyse</Text>
           <Text style={styles.errorSubtitle}>
-            {scanError ?? 'Une erreur est survenue lors de l\'analyse. Veuillez réessayer.'}
+            {scanError ?? 'Une erreur est survenue. Veuillez réessayer.'}
           </Text>
 
           <GoldButton
@@ -393,96 +537,238 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  recordingView: {
+  setupView: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  setupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  setupTitle: {
+    color: Colors.text,
+    fontSize: 20,
+    fontWeight: '700' as const,
+  },
+  setupSubtitle: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  urlInputRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 24,
+  },
+  urlInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.inputBg,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    gap: 10,
+    height: 48,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  urlInput: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 15,
+  },
+  goBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: Colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  goBtnDisabled: {
+    opacity: 0.4,
+  },
+  sectionLabel: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  merchantList: {
+    flex: 1,
+  },
+  merchantRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    gap: 14,
+  },
+  merchantIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  merchantEmoji: {
+    fontSize: 22,
+  },
+  merchantInfo: {
+    flex: 1,
+  },
+  merchantName: {
+    color: Colors.text,
+    fontSize: 16,
+    fontWeight: '600' as const,
+  },
+  merchantDesc: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  recordingContainer: {
+    flex: 1,
+  },
+  webViewContainer: {
+    flex: 1,
+  },
+  webView: {
+    flex: 1,
+  },
+  webViewLoading: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    marginTop: 12,
+  },
+  webFallback: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    gap: 16,
+    padding: 32,
   },
-  recIndicator: {
+  webFallbackText: {
+    color: Colors.textMuted,
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  recordingOverlayTop: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     gap: 8,
-    marginBottom: 60,
+    zIndex: 10,
   },
   recDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: Colors.recording,
   },
-  recText: {
+  recLabel: {
     color: Colors.recording,
-    fontSize: 14,
-    fontWeight: '700' as const,
-    letterSpacing: 2,
+    fontSize: 13,
+    fontWeight: '800' as const,
+    letterSpacing: 1,
   },
-  circleContainer: {
-    width: 200,
-    height: 200,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  outerRing: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    borderWidth: 2,
-    borderColor: Colors.gold,
-  },
-  middleRing: {
-    position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
-  },
-  innerCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: Colors.card,
-    borderWidth: 3,
-    borderColor: Colors.recording,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timerText: {
+  recTimer: {
     color: Colors.text,
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700' as const,
-    marginTop: 4,
+    flex: 1,
   },
-  timerBar: {
-    width: '100%',
-    height: 4,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 8,
+  recCaptures: {
+    backgroundColor: 'rgba(255,215,0,0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  recCaptureCount: {
+    color: Colors.gold,
+    fontSize: 13,
+    fontWeight: '700' as const,
+  },
+  recordingTimerBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    zIndex: 10,
   },
   timerBarFill: {
     height: '100%',
     backgroundColor: Colors.gold,
-    borderRadius: 2,
   },
-  timerLimit: {
-    color: Colors.textMuted,
+  recordingOverlayBottom: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 10,
+  },
+  tipText: {
+    color: '#fff',
     fontSize: 13,
-    marginBottom: 24,
-  },
-  instructions: {
-    color: Colors.textSecondary,
-    fontSize: 15,
+    fontWeight: '500' as const,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    overflow: 'hidden',
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 40,
   },
-  stopButton: {
-    width: '100%',
+  stopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: Colors.recording,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 30,
+    shadowColor: '#FF3B30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  stopBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700' as const,
   },
   analyzingView: {
     flex: 1,
@@ -637,6 +923,10 @@ const styles = StyleSheet.create({
   },
   resultsButton: {
     width: '100%',
+  },
+  retryButtonDone: {
+    width: '100%',
+    marginTop: 12,
   },
   errorView: {
     flex: 1,
