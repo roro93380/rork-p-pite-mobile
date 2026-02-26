@@ -384,9 +384,6 @@ export default function ScanScreen() {
             <Animated.View style={[styles.recDot, { opacity: pulseAnim }]} />
             <Text style={styles.recLabel}>REC</Text>
             <Text style={styles.recTimer}>{formatTimer(timer)}</Text>
-            <View style={styles.recCaptures}>
-              <Text style={styles.recCaptureCount}>{captureCount} 📸</Text>
-            </View>
           </View>
 
           <View style={styles.recordingTimerBar}>
@@ -707,17 +704,7 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
     flex: 1,
   },
-  recCaptures: {
-    backgroundColor: 'rgba(255,215,0,0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  recCaptureCount: {
-    color: Colors.gold,
-    fontSize: 13,
-    fontWeight: '700' as const,
-  },
+
   recordingTimerBar: {
     position: 'absolute',
     left: 0,
