@@ -98,26 +98,74 @@ const CONTENT_EXTRACT_JS = `
 (function() {
   try {
     var items = [];
-    var cards = document.querySelectorAll('[data-qa-id="aditem_container"], .oa-card, article, [class*="card"], [class*="item"], [class*="product"], [class*="listing"], [class*="annonce"]');
+    var selectors = [
+      '[data-qa-id="aditem_container"]',
+      '[data-testid*="ad"]',
+      '[class*="AdCard"]',
+      '[class*="aditem"]',
+      '.oa-card',
+      'article',
+      '[class*="ItemBox"]',
+      '[class*="item-card"]',
+      '[class*="product-card"]',
+      '[class*="ProductCard"]',
+      '[class*="listing-card"]',
+      '[class*="feed-grid"] > div',
+      '[class*="catalog"] [class*="item"]',
+      '[class*="search-result"]',
+      '[class*="annonce"]',
+      '[class*="Card"][class*="item"]',
+      'a[href*="/item/"]',
+      'a[href*="/annonce/"]',
+      'a[href*="/product/"]',
+      'a[href*="/offres/"]'
+    ];
+    var cards = document.querySelectorAll(selectors.join(', '));
     if (cards.length === 0) {
-      cards = document.querySelectorAll('a[href*="annonce"], a[href*="item"], a[href*="product"], li');
+      cards = document.querySelectorAll('[class*="card"], [class*="item"], [class*="product"]');
     }
-    var maxItems = Math.min(cards.length, 20);
+    if (cards.length === 0) {
+      cards = document.querySelectorAll('li a[href]');
+    }
+    var seen = {};
+    var maxItems = Math.min(cards.length, 30);
     for (var i = 0; i < maxItems; i++) {
       var card = cards[i];
       var title = '';
       var price = '';
       var link = '';
       var img = '';
-      var titleEl = card.querySelector('h2, h3, [class*="title"], [class*="Title"], [data-qa-id="aditem_title"]');
-      if (titleEl) title = titleEl.innerText.trim();
-      var priceEl = card.querySelector('[class*="price"], [class*="Price"], [data-qa-id="aditem_price"], span[class*="\\u20ac"]');
-      if (priceEl) price = priceEl.innerText.trim();
-      var linkEl = card.tagName === 'A' ? card : card.querySelector('a');
-      if (linkEl) link = linkEl.href || '';
-      var imgEl = card.querySelector('img');
-      if (imgEl) img = imgEl.src || imgEl.dataset.src || '';
-      if (title || price) {
+      var titleEls = card.querySelectorAll('h2, h3, h4, [class*="title"], [class*="Title"], [class*="name"], [class*="Name"], [data-qa-id="aditem_title"], [data-testid*="title"], p[class*="text"]');
+      for (var t = 0; t < titleEls.length; t++) {
+        var txt = titleEls[t].innerText.trim();
+        if (txt.length > 3 && txt.length < 200) { title = txt; break; }
+      }
+      var priceEls = card.querySelectorAll('[class*="price"], [class*="Price"], [class*="cost"], [data-qa-id="aditem_price"], [data-testid*="price"]');
+      for (var p = 0; p < priceEls.length; p++) {
+        var ptxt = priceEls[p].innerText.trim();
+        if (ptxt.match(/\\d/) && ptxt.length < 30) { price = ptxt; break; }
+      }
+      if (!price) {
+        var allSpans = card.querySelectorAll('span, p, div');
+        for (var s = 0; s < allSpans.length; s++) {
+          var stxt = allSpans[s].innerText.trim();
+          if (stxt.match(/\\d+.*\u20ac/) || stxt.match(/\u20ac.*\\d+/)) { price = stxt; break; }
+        }
+      }
+      var linkEl = card.tagName === 'A' ? card : card.querySelector('a[href]');
+      if (linkEl && linkEl.href) link = linkEl.href;
+      var imgEl = card.querySelector('img[src]');
+      if (imgEl) img = imgEl.src || imgEl.dataset.src || imgEl.dataset.lazySrc || '';
+      if (!img) {
+        var bgEl = card.querySelector('[style*="background-image"]');
+        if (bgEl) {
+          var bgMatch = bgEl.style.backgroundImage.match(/url\\(["']?([^"')]+)["']?\\)/);
+          if (bgMatch) img = bgMatch[1];
+        }
+      }
+      var key = title + price;
+      if ((title || price) && !seen[key]) {
+        seen[key] = true;
         items.push({ title: title, price: price, link: link, image: img });
       }
     }
@@ -125,23 +173,132 @@ const CONTENT_EXTRACT_JS = `
     var metaDesc = '';
     var metaEl = document.querySelector('meta[name="description"]');
     if (metaEl) metaDesc = metaEl.getAttribute('content') || '';
+    var bodyText = document.body ? document.body.innerText : '';
+    bodyText = bodyText.replace(/\\s+/g, ' ').substring(0, 8000);
     var result = {
       type: 'content',
       url: window.location.href,
       pageTitle: pageTitle,
       metaDescription: metaDesc,
       items: items,
-      bodyText: document.body ? document.body.innerText.substring(0, 5000) : ''
+      bodyText: bodyText
     };
     window.ReactNativeWebView.postMessage(JSON.stringify(result));
   } catch(e) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'content', error: e.message, url: window.location.href, items: [], bodyText: '', pageTitle: document.title || '' }));
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'content', error: e.message, url: window.location.href, items: [], bodyText: document.body ? document.body.innerText.substring(0, 8000) : '', pageTitle: document.title || '' }));
   }
 })();
 true;
 `;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const CORS_PROXIES = [
+  'https://api.allorigins.win/raw?url=',
+  'https://corsproxy.io/?',
+];
+
+async function fetchPageContentWeb(pageUrl: string): Promise<string> {
+  console.log('[Browse] Fetching page content for web:', pageUrl);
+  
+  for (const proxy of CORS_PROXIES) {
+    try {
+      const fetchUrl = proxy + encodeURIComponent(pageUrl);
+      const response = await fetch(fetchUrl, { 
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) continue;
+      
+      const html = await response.text();
+      if (!html || html.length < 100) continue;
+      
+      console.log(`[Browse] Web fetch success via proxy, ${html.length} chars`);
+      return parseHtmlToContent(html, pageUrl);
+    } catch (e) {
+      console.log(`[Browse] Proxy failed:`, e);
+    }
+  }
+
+  try {
+    const response = await fetch(pageUrl, { signal: AbortSignal.timeout(8000) });
+    if (response.ok) {
+      const html = await response.text();
+      if (html && html.length > 100) {
+        console.log(`[Browse] Direct fetch success, ${html.length} chars`);
+        return parseHtmlToContent(html, pageUrl);
+      }
+    }
+  } catch (e) {
+    console.log('[Browse] Direct fetch failed:', e);
+  }
+
+  console.log('[Browse] All fetch methods failed');
+  return '';
+}
+
+function parseHtmlToContent(html: string, pageUrl: string): string {
+  let content = `URL: ${pageUrl}\n`;
+  
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch) {
+    content += `Page: ${titleMatch[1].trim()}\n`;
+  }
+  
+  const metaMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i);
+  if (metaMatch) {
+    content += `Description: ${metaMatch[1].trim()}\n`;
+  }
+  
+  content += '\nContenu extrait:\n';
+  
+  let text = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&euro;/g, '€')
+    .replace(/&amp;/g, '&')
+    .replace(/&#?\w+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  const pricePattern = /\d+[.,]?\d*\s*€|€\s*\d+[.,]?\d*/g;
+  const prices = text.match(pricePattern);
+  if (prices && prices.length > 0) {
+    content += `\nPrix détectés: ${prices.slice(0, 30).join(', ')}\n`;
+  }
+
+  const imgMatches: string[] = [];
+  const imgRegex = /<img[^>]*src=["']([^"']+)["'][^>]*/gi;
+  let imgMatch;
+  while ((imgMatch = imgRegex.exec(html)) !== null && imgMatches.length < 15) {
+    const src = imgMatch[1];
+    if (src && !src.includes('data:') && !src.includes('pixel') && !src.includes('tracking') && src.length > 20) {
+      imgMatches.push(src);
+    }
+  }
+  if (imgMatches.length > 0) {
+    content += `\nImages produits: ${imgMatches.join('\n')}\n`;
+  }
+  
+  const linkMatches: string[] = [];
+  const linkRegex = /<a[^>]*href=["']([^"']*(?:annonce|item|product|listing|offre)[^"']*)["'][^>]*/gi;
+  let linkMatch;
+  while ((linkMatch = linkRegex.exec(html)) !== null && linkMatches.length < 20) {
+    linkMatches.push(linkMatch[1]);
+  }
+  if (linkMatches.length > 0) {
+    content += `\nLiens annonces: ${linkMatches.join('\n')}\n`;
+  }
+  
+  content += `\nTexte de la page:\n${text.substring(0, 8000)}`;
+  
+  console.log(`[Browse] Parsed content: ${content.length} chars, ${prices?.length ?? 0} prices, ${imgMatches.length} images, ${linkMatches.length} links`);
+  return content;
+}
 
 let WebViewComponent: React.ComponentType<any> | null = null;
 if (Platform.OS !== 'web') {
@@ -401,6 +558,24 @@ export default function BrowseScreen() {
     }
   }, []);
 
+  const fetchWebContent = useCallback(async () => {
+    if (Platform.OS === 'web' && url) {
+      console.log('[Browse] Web platform: fetching page content via proxy');
+      try {
+        const content = await fetchPageContentWeb(url);
+        if (content && content.length > 50) {
+          extractedContentRef.current = content;
+          setExtractedContent(content);
+          console.log(`[Browse] Web content fetched: ${content.length} chars`);
+        } else {
+          console.log('[Browse] Web content fetch returned insufficient data');
+        }
+      } catch (e) {
+        console.log('[Browse] Web content fetch error:', e);
+      }
+    }
+  }, [url]);
+
   const handleStartScan = useCallback(() => {
     if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
       Alert.alert(
@@ -427,37 +602,53 @@ export default function BrowseScreen() {
     setCurrentTipIndex(0);
     startScan();
 
-    initHtml2Canvas();
-    setTimeout(() => extractPageContent(), 2000);
-  }, [startScan, name, settings.geminiApiKey, extractPageContent, initHtml2Canvas, router]);
+    if (Platform.OS === 'web') {
+      fetchWebContent();
+      const webFetchInterval = setInterval(() => {
+        fetchWebContent();
+      }, 10000);
+      setTimeout(() => clearInterval(webFetchInterval), 35000);
+    } else {
+      initHtml2Canvas();
+      setTimeout(() => extractPageContent(), 2000);
+    }
+  }, [startScan, name, settings.geminiApiKey, extractPageContent, initHtml2Canvas, router, fetchWebContent]);
 
-  const doStopScan = useCallback(() => {
+  const doStopScan = useCallback(async () => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       setTimeout(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       }, 100);
+      captureScreenshot();
+      extractPageContent();
+    } else {
+      await fetchWebContent();
     }
-
-    captureScreenshot();
-    extractPageContent();
 
     setTimeout(() => {
       const merchantName = name ?? 'Shopping';
       const content = extractedContentRef.current;
       const screenshots = [...screenshotsRef.current];
 
-      console.log(`[Browse] Stopping VIDEO scan after ${scanTimeRef.current}s`);
+      console.log(`[Browse] Stopping scan after ${scanTimeRef.current}s`);
+      console.log(`[Browse] Platform: ${Platform.OS}`);
       console.log(`[Browse] Captured ${screenshots.length} frames`);
       console.log(`[Browse] Extracted ${content.length} chars of text`);
-      console.log(`[Browse] Total screenshot data: ${Math.round(screenshots.reduce((s, f) => s + f.length, 0) / 1024)}KB`);
+      if (screenshots.length > 0) {
+        console.log(`[Browse] Total screenshot data: ${Math.round(screenshots.reduce((s, f) => s + f.length, 0) / 1024)}KB`);
+      }
+
+      if (content.length === 0 && screenshots.length === 0) {
+        console.warn('[Browse] WARNING: No content and no screenshots captured! Analysis will likely fail.');
+      }
 
       setScanning(false);
       setShowResults(true);
       overlayFade.setValue(0);
       stopScan(merchantName, content, screenshots);
     }, 800);
-  }, [stopScan, name, extractPageContent, captureScreenshot]);
+  }, [stopScan, name, extractPageContent, captureScreenshot, fetchWebContent]);
 
   const handleStopScan = useCallback(() => {
     doStopScan();
