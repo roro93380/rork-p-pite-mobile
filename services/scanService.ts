@@ -1,6 +1,6 @@
 import { Pepite } from '@/types';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 const UNSPLASH_IMAGES: Record<string, string> = {
   watch: 'https://images.unsplash.com/photo-1524592094714-0f0654e20314?w=600&h=600&fit=crop',
@@ -65,7 +65,69 @@ interface GeminiResponse {
   };
 }
 
-function buildExpertPrompt(merchantName: string, pageContent: string): string {
+interface GeminiPart {
+  text?: string;
+  inlineData?: {
+    mimeType: string;
+    data: string;
+  };
+}
+
+function buildVideoExpertPrompt(merchantName: string, pageContent: string, frameCount: number): string {
+  return `Tu es un EXPERT en achat-revente et flipping depuis 15 ans. Tu connais parfaitement les cotes du marché de l'occasion en France.
+
+TON EXPERTISE :
+- Tu maîtrises les prix du marché de revente pour : montres de luxe, sneakers limitées, sacs de marque, électronique, consoles retro, vinyles, mobilier design, art, bijoux, vêtements de marque
+- Tu sais identifier les annonces sous-évaluées en quelques secondes
+- Tu connais les techniques de revente (eBay, Vinted, Vestiaire Collective, marchés spécialisés)
+- Tu calcules le profit NET réaliste (après frais de plateforme ~10-15%, envoi ~5-10€)
+
+CONTEXTE DU SCAN VIDÉO :
+L'utilisateur a scanné "${merchantName}" pendant 30 secondes. Tu reçois ${frameCount} captures d'écran prises pendant sa navigation, comme des frames d'une vidéo de son écran.
+${pageContent ? `\nDonnées textuelles extraites en complément :\n---\n${pageContent.substring(0, 6000)}\n---` : ''}
+
+MISSION :
+Analyse CHAQUE image/frame attentivement. Regarde les annonces visibles : titres, prix, photos des produits, descriptions.
+Identifie les VRAIES bonnes affaires visibles dans ces captures.
+Si tu vois des annonces réelles avec des prix, analyse-les. Sinon, base-toi sur le type de produits typiquement vendus sur ${merchantName}.
+
+CRITÈRES DE SÉLECTION D'UNE PÉPITE :
+1. Le prix demandé est au minimum 30% en dessous de la valeur marché
+2. Le produit a une demande forte et se revend facilement
+3. Le profit potentiel justifie l'effort (minimum 40€ de profit)
+4. L'état du produit est acceptable pour la revente
+
+IMPORTANT : Sois réaliste dans tes estimations. Pas de profits fantaisistes.
+- Un iPhone d'occasion se revend sur certaines plateformes avec 15-20% de marge max
+- Une montre de luxe vintage peut avoir 50-200% de marge si bien sourcée
+- Des sneakers limitées neuves peuvent avoir 30-100% de marge
+- Du mobilier design vintage peut avoir 100-500% de marge
+
+IMPORTANT : Si tu vois des URLs d'annonces ou des images de produits dans les captures, INCLUS-LES dans ta réponse (champs adUrl et adImageUrl).
+
+Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce format exact :
+{
+  "pepites": [
+    {
+      "title": "Nom précis du produit (marque, modèle, taille/ref si pertinent)",
+      "sellerPrice": 0,
+      "estimatedValue": 0,
+      "profit": 0,
+      "source": "${merchantName}",
+      "sourceUrl": "URL réelle ou plausible de l'annonce sur ${merchantName}",
+      "category": "Catégorie (Montres, Sneakers, Luxe, Électronique, Retro Gaming, Mode, Bijoux, Mobilier, Art, Vinyles)",
+      "description": "Explication experte de pourquoi c'est une bonne affaire : état estimé, raison de la sous-évaluation, où et comment revendre, délai de revente estimé",
+      "imageKeyword": "mot-clé anglais simple pour trouver une image (watch, sneakers, handbag, phone, laptop, console, jewelry, furniture, camera, vintage, gaming, clothing, bag, bike, book, vinyl, electronics, art, shoes)",
+      "adUrl": "URL directe vers l'annonce si visible dans les captures, sinon URL de recherche sur la plateforme",
+      "adImageUrl": "URL de l'image du produit si visible dans les captures, sinon chaîne vide"
+    }
+  ]
+}
+
+Génère entre 2 et 5 pépites réalistes basées sur ce que tu vois dans les captures. Varie les catégories.`;
+}
+
+function buildTextOnlyPrompt(merchantName: string, pageContent: string): string {
   return `Tu es un EXPERT en achat-revente et flipping depuis 15 ans. Tu connais parfaitement les cotes du marché de l'occasion en France.
 
 TON EXPERTISE :
@@ -88,10 +150,6 @@ CRITÈRES DE SÉLECTION D'UNE PÉPITE :
 4. L'état du produit est acceptable pour la revente
 
 IMPORTANT : Sois réaliste dans tes estimations. Pas de profits fantaisistes.
-- Un iPhone d'occasion se revend sur certaines plateformes avec 15-20% de marge max
-- Une montre de luxe vintage peut avoir 50-200% de marge si bien sourcée
-- Des sneakers limitées neuves peuvent avoir 30-100% de marge
-- Du mobilier design vintage peut avoir 100-500% de marge
 
 Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce format exact :
 {
@@ -104,10 +162,10 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
       "source": "${merchantName}",
       "sourceUrl": "URL réelle ou plausible de l'annonce sur ${merchantName}",
       "category": "Catégorie (Montres, Sneakers, Luxe, Électronique, Retro Gaming, Mode, Bijoux, Mobilier, Art, Vinyles)",
-      "description": "Explication experte de pourquoi c'est une bonne affaire : état estimé, raison de la sous-évaluation, où et comment revendre, délai de revente estimé",
-      "imageKeyword": "mot-clé anglais simple pour trouver une image (watch, sneakers, handbag, phone, laptop, console, jewelry, furniture, camera, vintage, gaming, clothing, bag, bike, book, vinyl, electronics, art, shoes)",
-      "adUrl": "URL directe vers l'annonce si disponible, sinon URL de recherche sur la plateforme",
-      "adImageUrl": "URL de l'image du produit si disponible dans le contenu, sinon chaîne vide"
+      "description": "Explication experte de pourquoi c'est une bonne affaire",
+      "imageKeyword": "mot-clé anglais simple pour trouver une image",
+      "adUrl": "URL directe vers l'annonce si disponible",
+      "adImageUrl": "URL de l'image du produit si disponible, sinon chaîne vide"
     }
   ]
 }
@@ -115,66 +173,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
 Génère entre 2 et 5 pépites réalistes. Varie les catégories.`;
 }
 
-export async function analyzeWithGemini(
-  apiKey: string,
-  merchantName: string,
-  pageContent: string,
-): Promise<Pepite[]> {
-  if (!apiKey || apiKey.trim().length === 0) {
-    console.error('[ScanService] No Gemini API key provided');
-    throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
-  }
-
-  const prompt = buildExpertPrompt(merchantName, pageContent);
-  console.log(`[ScanService] Calling Gemini API for merchant: ${merchantName}`);
-  console.log(`[ScanService] Page content length: ${pageContent.length} chars`);
-
-  const requestBody = {
-    contents: [
-      {
-        parts: [
-          {
-            text: prompt,
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.7,
-      topK: 40,
-      topP: 0.95,
-      maxOutputTokens: 4096,
-      responseMimeType: 'application/json',
-    },
-  };
-
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[ScanService] Gemini API error ${response.status}:`, errorText);
-
-    if (response.status === 400) {
-      throw new Error('Clé API invalide ou requête malformée. Vérifiez votre clé dans les réglages.');
-    }
-    if (response.status === 403) {
-      throw new Error('Clé API non autorisée. Vérifiez que votre clé Gemini est active.');
-    }
-    if (response.status === 429) {
-      throw new Error('Trop de requêtes. Attendez quelques secondes et réessayez.');
-    }
-    throw new Error(`Erreur API Gemini (${response.status}). Réessayez.`);
-  }
-
-  const data: GeminiResponse = await response.json();
-  console.log('[ScanService] Gemini response received');
-
+function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite[] {
   if (data.error) {
     console.error('[ScanService] Gemini returned error:', data.error);
     throw new Error(data.error.message ?? 'Erreur inconnue de Gemini');
@@ -229,6 +228,115 @@ export async function analyzeWithGemini(
   });
 
   return pepites;
+}
+
+async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<GeminiResponse> {
+  const requestBody = {
+    contents: [
+      {
+        parts,
+      },
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 4096,
+      responseMimeType: 'application/json',
+    },
+  };
+
+  console.log(`[ScanService] Calling Gemini API with ${parts.length} parts`);
+
+  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`[ScanService] Gemini API error ${response.status}:`, errorText);
+
+    if (response.status === 400) {
+      throw new Error('Clé API invalide ou requête malformée. Vérifiez votre clé dans les réglages.');
+    }
+    if (response.status === 403) {
+      throw new Error('Clé API non autorisée. Vérifiez que votre clé Gemini est active.');
+    }
+    if (response.status === 429) {
+      throw new Error('Trop de requêtes. Attendez quelques secondes et réessayez.');
+    }
+    throw new Error(`Erreur API Gemini (${response.status}). Réessayez.`);
+  }
+
+  return response.json();
+}
+
+export async function analyzeWithGeminiVideo(
+  apiKey: string,
+  merchantName: string,
+  screenshots: string[],
+  pageContent: string,
+): Promise<Pepite[]> {
+  if (!apiKey || apiKey.trim().length === 0) {
+    console.error('[ScanService] No Gemini API key provided');
+    throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
+  }
+
+  console.log(`[ScanService] Video analysis: ${screenshots.length} frames for ${merchantName}`);
+  console.log(`[ScanService] Supplementary text: ${pageContent.length} chars`);
+
+  const parts: GeminiPart[] = [];
+
+  const prompt = buildVideoExpertPrompt(merchantName, pageContent, screenshots.length);
+  parts.push({ text: prompt });
+
+  for (let i = 0; i < screenshots.length; i++) {
+    const base64 = screenshots[i];
+    if (base64 && base64.length > 100) {
+      parts.push({
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: base64,
+        },
+      });
+      console.log(`[ScanService] Added frame ${i + 1}: ${Math.round(base64.length / 1024)}KB`);
+    }
+  }
+
+  if (parts.length === 1) {
+    console.log('[ScanService] No valid screenshots, falling back to text-only analysis');
+    return analyzeWithGemini(apiKey, merchantName, pageContent);
+  }
+
+  const data = await callGeminiApi(apiKey, parts);
+  console.log('[ScanService] Gemini video analysis response received');
+
+  return parseGeminiResponse(data, merchantName);
+}
+
+export async function analyzeWithGemini(
+  apiKey: string,
+  merchantName: string,
+  pageContent: string,
+): Promise<Pepite[]> {
+  if (!apiKey || apiKey.trim().length === 0) {
+    console.error('[ScanService] No Gemini API key provided');
+    throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
+  }
+
+  const prompt = buildTextOnlyPrompt(merchantName, pageContent);
+  console.log(`[ScanService] Text-only analysis for: ${merchantName}`);
+  console.log(`[ScanService] Page content length: ${pageContent.length} chars`);
+
+  const parts: GeminiPart[] = [{ text: prompt }];
+  const data = await callGeminiApi(apiKey, parts);
+  console.log('[ScanService] Gemini text analysis response received');
+
+  return parseGeminiResponse(data, merchantName);
 }
 
 export function generateFallbackPepites(merchantName: string): Pepite[] {

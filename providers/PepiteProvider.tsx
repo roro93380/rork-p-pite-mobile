@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import createContextHook from '@nkzw/create-context-hook';
 import { Pepite, AppSettings, ScanSession } from '@/types';
 import { MOCK_PEPITES } from '@/mocks/pepites';
-import { analyzeWithGemini, generateFallbackPepites } from '@/services/scanService';
+import { analyzeWithGemini, analyzeWithGeminiVideo, generateFallbackPepites } from '@/services/scanService';
 import { setupNotifications, sendPepiteFoundNotification } from '@/services/notificationService';
 
 const STORAGE_KEYS = {
@@ -148,15 +148,22 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   }, []);
 
   const scanMutation = useMutation({
-    mutationFn: async ({ merchantName, pageContent }: { merchantName: string; pageContent: string }) => {
-      console.log(`[PepiteProvider] Starting real Gemini analysis for ${merchantName}...`);
+    mutationFn: async ({ merchantName, pageContent, screenshots }: { merchantName: string; pageContent: string; screenshots?: string[] }) => {
+      console.log(`[PepiteProvider] Starting Gemini analysis for ${merchantName}...`);
       console.log(`[PepiteProvider] API key present: ${settings.geminiApiKey.length > 0}`);
-      console.log(`[PepiteProvider] Page content length: ${pageContent.length}`);
+      console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}, Text: ${pageContent.length} chars`);
 
       if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
         throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
       }
 
+      if (screenshots && screenshots.length > 0) {
+        console.log(`[PepiteProvider] Using VIDEO mode with ${screenshots.length} frames`);
+        const results = await analyzeWithGeminiVideo(settings.geminiApiKey, merchantName, screenshots, pageContent);
+        return results;
+      }
+
+      console.log('[PepiteProvider] Using TEXT-ONLY mode (no screenshots)');
       const results = await analyzeWithGemini(settings.geminiApiKey, merchantName, pageContent);
       return results;
     },
@@ -186,11 +193,12 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     setScanError(null);
   }, []);
 
-  const stopScan = useCallback((merchantName: string, pageContent: string) => {
+  const stopScan = useCallback((merchantName: string, pageContent: string, screenshots?: string[]) => {
     setIsScanning(false);
     setScanTimer(0);
     console.log(`[PepiteProvider] Stopping scan, launching Gemini analysis for: ${merchantName}`);
-    scanMutation.mutate({ merchantName, pageContent });
+    console.log(`[PepiteProvider] Mode: ${screenshots && screenshots.length > 0 ? 'VIDEO (' + screenshots.length + ' frames)' : 'TEXT-ONLY'}`);
+    scanMutation.mutate({ merchantName, pageContent, screenshots });
   }, [scanMutation]);
 
   const activePepites = useMemo(

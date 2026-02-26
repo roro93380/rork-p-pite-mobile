@@ -12,12 +12,70 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, Scan, Square, Zap, Shield } from 'lucide-react-native';
+import { ArrowLeft, Scan, Square, Zap, Shield, Video } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePepite } from '@/providers/PepiteProvider';
 
 const SCAN_DURATION_LIMIT = 30;
+const SCREENSHOT_INTERVAL = 4000;
+const MAX_SCREENSHOTS = 8;
+
+const INIT_HTML2CANVAS_JS = `
+(function() {
+  if (window._h2cLoaded) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'h2c_ready' }));
+    return;
+  }
+  if (window._h2cLoading) return;
+  window._h2cLoading = true;
+  var s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+  s.onload = function() {
+    window._h2cLoaded = true;
+    window._h2cLoading = false;
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'h2c_ready' }));
+  };
+  s.onerror = function() {
+    window._h2cLoading = false;
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'h2c_error', error: 'Failed to load html2canvas' }));
+  };
+  document.head.appendChild(s);
+})();
+true;
+`;
+
+const CAPTURE_SCREENSHOT_JS = `
+(function() {
+  if (!window.html2canvas) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: 'html2canvas not loaded' }));
+    return;
+  }
+  try {
+    html2canvas(document.body, {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      x: 0,
+      y: window.scrollY,
+      scale: 0.5,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      imageTimeout: 3000
+    }).then(function(canvas) {
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.4);
+      var base64 = dataUrl.split(',')[1] || '';
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot', data: base64, size: base64.length }));
+    }).catch(function(err) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: err.message }));
+    });
+  } catch(e) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'screenshot_error', error: e.message }));
+  }
+})();
+true;
+`;
+
 const CONTENT_EXTRACT_JS = `
 (function() {
   try {
@@ -35,7 +93,7 @@ const CONTENT_EXTRACT_JS = `
       var img = '';
       var titleEl = card.querySelector('h2, h3, [class*="title"], [class*="Title"], [data-qa-id="aditem_title"]');
       if (titleEl) title = titleEl.innerText.trim();
-      var priceEl = card.querySelector('[class*="price"], [class*="Price"], [data-qa-id="aditem_price"], span[class*="€"]');
+      var priceEl = card.querySelector('[class*="price"], [class*="Price"], [data-qa-id="aditem_price"], span[class*="\\u20ac"]');
       if (priceEl) price = priceEl.innerText.trim();
       var linkEl = card.tagName === 'A' ? card : card.querySelector('a');
       if (linkEl) link = linkEl.href || '';
@@ -50,6 +108,7 @@ const CONTENT_EXTRACT_JS = `
     var metaEl = document.querySelector('meta[name="description"]');
     if (metaEl) metaDesc = metaEl.getAttribute('content') || '';
     var result = {
+      type: 'content',
       url: window.location.href,
       pageTitle: pageTitle,
       metaDescription: metaDesc,
@@ -58,7 +117,7 @@ const CONTENT_EXTRACT_JS = `
     };
     window.ReactNativeWebView.postMessage(JSON.stringify(result));
   } catch(e) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ error: e.message, url: window.location.href, items: [], bodyText: '', pageTitle: document.title || '' }));
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'content', error: e.message, url: window.location.href, items: [], bodyText: '', pageTitle: document.title || '' }));
   }
 })();
 true;
@@ -91,6 +150,8 @@ export default function BrowseScreen() {
   const [pageLoaded, setPageLoaded] = useState<boolean>(false);
   const [showResults, setShowResults] = useState<boolean>(false);
   const [extractedContent, setExtractedContent] = useState<string>('');
+  const [h2cReady, setH2cReady] = useState<boolean>(false);
+  const [frameCount, setFrameCount] = useState<number>(0);
 
   const webViewRef = useRef<any>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -101,6 +162,7 @@ export default function BrowseScreen() {
   const dotRef = useRef<Animated.CompositeAnimation | null>(null);
   const extractedContentRef = useRef<string>('');
   const scanTimeRef = useRef<number>(0);
+  const screenshotsRef = useRef<string[]>([]);
 
   useEffect(() => {
     if (scanning) {
@@ -124,10 +186,20 @@ export default function BrowseScreen() {
 
   useEffect(() => {
     if (scanning) {
+      captureScreenshot();
+
       const captureInterval = setInterval(() => {
+        captureScreenshot();
+      }, SCREENSHOT_INTERVAL);
+
+      const contentInterval = setInterval(() => {
         extractPageContent();
-      }, 5000);
-      return () => clearInterval(captureInterval);
+      }, 8000);
+
+      return () => {
+        clearInterval(captureInterval);
+        clearInterval(contentInterval);
+      };
     }
   }, [scanning]);
 
@@ -176,6 +248,28 @@ export default function BrowseScreen() {
     }
   }, [scanError, showResults]);
 
+  const initHtml2Canvas = useCallback(() => {
+    if (Platform.OS !== 'web' && webViewRef.current) {
+      try {
+        webViewRef.current.injectJavaScript(INIT_HTML2CANVAS_JS);
+        console.log('[Browse] Injected html2canvas init script');
+      } catch (e) {
+        console.log('[Browse] Failed to inject html2canvas:', e);
+      }
+    }
+  }, []);
+
+  const captureScreenshot = useCallback(() => {
+    if (Platform.OS !== 'web' && webViewRef.current && screenshotsRef.current.length < MAX_SCREENSHOTS) {
+      try {
+        webViewRef.current.injectJavaScript(CAPTURE_SCREENSHOT_JS);
+        console.log(`[Browse] Capturing frame ${screenshotsRef.current.length + 1}/${MAX_SCREENSHOTS}`);
+      } catch (e) {
+        console.log('[Browse] Failed to capture screenshot:', e);
+      }
+    }
+  }, []);
+
   const extractPageContent = useCallback(() => {
     if (Platform.OS !== 'web' && webViewRef.current) {
       try {
@@ -190,31 +284,59 @@ export default function BrowseScreen() {
   const handleWebViewMessage = useCallback((event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      console.log(`[Browse] Extracted: ${data.items?.length ?? 0} items from ${data.pageTitle}`);
 
-      let content = `Page: ${data.pageTitle}\nURL: ${data.url}\n`;
-      if (data.metaDescription) {
-        content += `Description: ${data.metaDescription}\n`;
-      }
-      content += '\nAnnonces trouvées:\n';
-
-      if (data.items && data.items.length > 0) {
-        data.items.forEach((item: any, i: number) => {
-          content += `\n--- Annonce ${i + 1} ---\n`;
-          if (item.title) content += `Titre: ${item.title}\n`;
-          if (item.price) content += `Prix: ${item.price}\n`;
-          if (item.link) content += `Lien: ${item.link}\n`;
-          if (item.image) content += `Image: ${item.image}\n`;
-        });
+      if (data.type === 'h2c_ready') {
+        console.log('[Browse] html2canvas loaded and ready');
+        setH2cReady(true);
+        return;
       }
 
-      if (data.bodyText) {
-        content += `\nContenu de la page:\n${data.bodyText.substring(0, 3000)}`;
+      if (data.type === 'h2c_error') {
+        console.log('[Browse] html2canvas load error:', data.error);
+        return;
       }
 
-      extractedContentRef.current = content;
-      setExtractedContent(content);
-      console.log(`[Browse] Content extracted: ${content.length} chars`);
+      if (data.type === 'screenshot') {
+        if (data.data && data.data.length > 100 && screenshotsRef.current.length < MAX_SCREENSHOTS) {
+          screenshotsRef.current.push(data.data);
+          setFrameCount(screenshotsRef.current.length);
+          console.log(`[Browse] Screenshot captured: frame ${screenshotsRef.current.length}, ${Math.round(data.size / 1024)}KB`);
+        }
+        return;
+      }
+
+      if (data.type === 'screenshot_error') {
+        console.log('[Browse] Screenshot capture error:', data.error);
+        return;
+      }
+
+      if (data.type === 'content' || data.items) {
+        console.log(`[Browse] Extracted: ${data.items?.length ?? 0} items from ${data.pageTitle}`);
+
+        let content = `Page: ${data.pageTitle}\nURL: ${data.url}\n`;
+        if (data.metaDescription) {
+          content += `Description: ${data.metaDescription}\n`;
+        }
+        content += '\nAnnonces trouvées:\n';
+
+        if (data.items && data.items.length > 0) {
+          data.items.forEach((item: any, i: number) => {
+            content += `\n--- Annonce ${i + 1} ---\n`;
+            if (item.title) content += `Titre: ${item.title}\n`;
+            if (item.price) content += `Prix: ${item.price}\n`;
+            if (item.link) content += `Lien: ${item.link}\n`;
+            if (item.image) content += `Image: ${item.image}\n`;
+          });
+        }
+
+        if (data.bodyText) {
+          content += `\nContenu de la page:\n${data.bodyText.substring(0, 3000)}`;
+        }
+
+        extractedContentRef.current = content;
+        setExtractedContent(content);
+        console.log(`[Browse] Content extracted: ${content.length} chars`);
+      }
     } catch (e) {
       console.log('[Browse] Failed to parse WebView message:', e);
     }
@@ -236,16 +358,19 @@ export default function BrowseScreen() {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
-    console.log(`[Browse] Starting scan on ${name}`);
+    console.log(`[Browse] Starting VIDEO scan on ${name}`);
     setScanning(true);
     setScanTime(0);
     scanTimeRef.current = 0;
     setExtractedContent('');
     extractedContentRef.current = '';
+    screenshotsRef.current = [];
+    setFrameCount(0);
     startScan();
 
-    setTimeout(() => extractPageContent(), 1000);
-  }, [startScan, name, settings.geminiApiKey, extractPageContent, router]);
+    initHtml2Canvas();
+    setTimeout(() => extractPageContent(), 2000);
+  }, [startScan, name, settings.geminiApiKey, extractPageContent, initHtml2Canvas, router]);
 
   const doStopScan = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -255,19 +380,25 @@ export default function BrowseScreen() {
       }, 100);
     }
 
+    captureScreenshot();
     extractPageContent();
 
     setTimeout(() => {
       const merchantName = name ?? 'Shopping';
       const content = extractedContentRef.current;
-      console.log(`[Browse] Stopping scan after ${scanTimeRef.current}s`);
-      console.log(`[Browse] Sending ${content.length} chars to Gemini for ${merchantName}`);
+      const screenshots = [...screenshotsRef.current];
+
+      console.log(`[Browse] Stopping VIDEO scan after ${scanTimeRef.current}s`);
+      console.log(`[Browse] Captured ${screenshots.length} frames`);
+      console.log(`[Browse] Extracted ${content.length} chars of text`);
+      console.log(`[Browse] Total screenshot data: ${Math.round(screenshots.reduce((s, f) => s + f.length, 0) / 1024)}KB`);
+
       setScanning(false);
       setShowResults(true);
       overlayFade.setValue(0);
-      stopScan(merchantName, content);
-    }, 500);
-  }, [stopScan, name, extractPageContent]);
+      stopScan(merchantName, content, screenshots);
+    }, 800);
+  }, [stopScan, name, extractPageContent, captureScreenshot]);
 
   const handleStopScan = useCallback(() => {
     doStopScan();
@@ -293,7 +424,7 @@ export default function BrowseScreen() {
 
   const scanBarHeight = scanBarAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 44],
+    outputRange: [0, 52],
   });
 
   const progressPercent = Math.min((scanTime / SCAN_DURATION_LIMIT) * 100, 100);
@@ -326,7 +457,7 @@ export default function BrowseScreen() {
             activeOpacity={0.8}
             testID="start-scan-btn"
           >
-            <Scan size={16} color="#000" />
+            <Video size={16} color="#000" />
             <Text style={styles.scanStartText}>SCAN</Text>
           </TouchableOpacity>
         ) : (
@@ -350,11 +481,17 @@ export default function BrowseScreen() {
             <View style={styles.scanIndicatorLeft}>
               <Animated.View style={[styles.recDotSmall, { opacity: dotOpacity }]} />
               <Text style={styles.scanIndicatorText}>
-                Scan · {formatTime(scanTime)} / 0:{SCAN_DURATION_LIMIT.toString().padStart(2, '0')}
+                REC · {formatTime(scanTime)}
               </Text>
             </View>
-            <View style={styles.progressMini}>
-              <View style={[styles.progressMiniFill, { width: `${progressPercent}%` as any }]} />
+            <View style={styles.scanMeta}>
+              <View style={styles.frameBadge}>
+                <Video size={10} color={Colors.gold} />
+                <Text style={styles.frameCountText}>{frameCount} frames</Text>
+              </View>
+              <View style={styles.progressMini}>
+                <View style={[styles.progressMiniFill, { width: `${progressPercent}%` as any }]} />
+              </View>
             </View>
           </View>
         )}
@@ -369,6 +506,7 @@ export default function BrowseScreen() {
             onLoadEnd={() => {
               console.log('[Browse] Page loaded');
               setPageLoaded(true);
+              initHtml2Canvas();
             }}
             onMessage={handleWebViewMessage}
             startInLoadingState
@@ -410,6 +548,12 @@ export default function BrowseScreen() {
             <View style={styles.scanEdgeBottom} />
             <View style={styles.scanEdgeLeft} />
             <View style={styles.scanEdgeRight} />
+            <View style={styles.recBadgeOverlay}>
+              <View style={styles.recBadge}>
+                <View style={styles.recBadgeDot} />
+                <Text style={styles.recBadgeText}>REC</Text>
+              </View>
+            </View>
           </View>
         )}
       </View>
@@ -420,10 +564,26 @@ export default function BrowseScreen() {
             {isAnalyzing ? (
               <View style={styles.analyzingContainer}>
                 <ActivityIndicator size="large" color={Colors.gold} />
-                <Text style={styles.analyzingText}>Analyse Gemini en cours...</Text>
+                <Text style={styles.analyzingText}>Analyse vidéo Gemini...</Text>
                 <Text style={styles.analyzingSubtext}>
-                  L'expert IA analyse les annonces détectées
+                  L'expert IA analyse {screenshotsRef.current.length} captures d'écran
                 </Text>
+                <View style={styles.analyzeStats}>
+                  <View style={styles.analyzeStat}>
+                    <Text style={styles.analyzeStatValue}>{screenshotsRef.current.length}</Text>
+                    <Text style={styles.analyzeStatLabel}>Frames</Text>
+                  </View>
+                  <View style={styles.analyzeStatDivider} />
+                  <View style={styles.analyzeStat}>
+                    <Text style={styles.analyzeStatValue}>{formatTime(scanTimeRef.current)}</Text>
+                    <Text style={styles.analyzeStatLabel}>Durée</Text>
+                  </View>
+                  <View style={styles.analyzeStatDivider} />
+                  <View style={styles.analyzeStat}>
+                    <Text style={styles.analyzeStatValue}>{Math.round(screenshotsRef.current.reduce((s, f) => s + f.length, 0) / 1024)}K</Text>
+                    <Text style={styles.analyzeStatLabel}>Données</Text>
+                  </View>
+                </View>
               </View>
             ) : scanError ? (
               <View style={styles.resultContent}>
@@ -607,9 +767,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700' as const,
   },
-  progressMini: {
+  scanMeta: {
     flex: 1,
-    height: 4,
+    gap: 6,
+    alignItems: 'flex-end',
+  },
+  frameBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,215,0,0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  frameCountText: {
+    color: Colors.gold,
+    fontSize: 11,
+    fontWeight: '700' as const,
+  },
+  progressMini: {
+    width: '100%',
+    height: 3,
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 2,
     overflow: 'hidden',
@@ -680,6 +859,32 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.recording,
     opacity: 0.7,
   },
+  recBadgeOverlay: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+  },
+  recBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 59, 48, 0.9)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    gap: 5,
+  },
+  recBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+  },
+  recBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800' as const,
+    letterSpacing: 1,
+  },
   resultsOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -697,9 +902,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   analyzingContainer: {
-    padding: 40,
+    padding: 32,
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   analyzingText: {
     color: Colors.text,
@@ -711,6 +916,36 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 14,
     textAlign: 'center',
+  },
+  analyzeStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  analyzeStat: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  analyzeStatValue: {
+    color: Colors.gold,
+    fontSize: 16,
+    fontWeight: '800' as const,
+  },
+  analyzeStatLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: '500' as const,
+  },
+  analyzeStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: Colors.divider,
   },
   resultContent: {
     padding: 28,
