@@ -851,9 +851,7 @@ export default function BrowseScreen() {
                   })}
                 </View>
 
-                <Text style={styles.analyzingSubtext}>
-                  Gemini analyse {screenshotCount} capture{screenshotCount > 1 ? 's' : ''}{contentExtracted ? ' + contenu texte' : ''} · {formatTime(scanTimeRef.current)} de scan
-                </Text>
+
               </View>
             ) : scanError ? (
               <View style={styles.resultContent}>

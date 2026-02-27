@@ -107,10 +107,12 @@ Réponds UNIQUEMENT en JSON valide, sans markdown :
       "description": "Pourquoi c'est une bonne affaire",
       "imageKeyword": "mot-clé anglais (watch, sneakers, handbag, phone, laptop, console, jewelry, furniture, camera, vintage, gaming, clothing, bag, bike, book, vinyl, electronics, art, shoes)",
       "adUrl": "URL de l'annonce si visible",
-      "adImageUrl": "URL image produit si visible, sinon chaîne vide"
+      "adImageUrl": "URL COMPLÈTE de l'image produit si visible (IMPORTANT: copie l'URL entière sans la couper), sinon chaîne vide"
     }
   ]
 }
+
+IMPORTANT : Chaque objet JSON doit être COMPLET. Ne coupe JAMAIS une URL en plein milieu. Si l'URL est trop longue, mets une chaîne vide plutôt que de la tronquer.
 
 Retourne 1-10 pépites. Si aucune annonce réelle : {"pepites": []}.`;
 }
@@ -156,12 +158,60 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
       "description": "Explication experte de pourquoi c'est une bonne affaire",
       "imageKeyword": "mot-clé anglais simple pour trouver une image",
       "adUrl": "URL directe vers l'annonce RÉELLE extraite des données",
-      "adImageUrl": "URL de l'image du produit RÉELLE extraite des données, sinon chaîne vide"
+      "adImageUrl": "URL COMPLÈTE de l'image du produit RÉELLE extraite des données (IMPORTANT: copie l'URL entière sans la couper), sinon chaîne vide"
     }
   ]
 }
 
+IMPORTANT : Chaque objet JSON doit être COMPLET. Ne coupe JAMAIS une URL en plein milieu. Si l'URL est trop longue, mets une chaîne vide plutôt que de la tronquer.
+
 Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en trouves. La moindre marge de 8% suffit. Si aucune annonce réelle n'est trouvée, retourne : {"pepites": []}.`;
+}
+
+function tryRepairIncompleteObject(raw: string): GeminiPepite | null {
+  try {
+    let fixed = raw.trim();
+    if (fixed.endsWith(',')) fixed = fixed.slice(0, -1);
+    
+    const lastQuoteIdx = fixed.lastIndexOf('"');
+    if (lastQuoteIdx === -1) return null;
+    
+    const afterLastQuote = fixed.substring(lastQuoteIdx + 1).trim();
+    if (afterLastQuote === '' || afterLastQuote === ':') {
+      const lastKeyMatch = fixed.match(/,\s*"[^"]+"\s*:?\s*$/s);
+      if (lastKeyMatch && lastKeyMatch.index !== undefined) {
+        fixed = fixed.substring(0, lastKeyMatch.index);
+      } else {
+        return null;
+      }
+    } else if (!afterLastQuote.endsWith('}')) {
+      const lastCompleteField = fixed.lastIndexOf(',"');
+      if (lastCompleteField > 0) {
+        fixed = fixed.substring(0, lastCompleteField);
+      }
+    }
+    
+    if (!fixed.endsWith('}')) {
+      fixed += '}';
+    }
+    
+    const obj = JSON.parse(fixed);
+    if (obj.title && (obj.sellerPrice !== undefined || obj.estimatedValue !== undefined)) {
+      if (!obj.adImageUrl) obj.adImageUrl = '';
+      if (!obj.adUrl) obj.adUrl = '';
+      if (!obj.sourceUrl) obj.sourceUrl = '';
+      if (!obj.imageKeyword) obj.imageKeyword = 'default';
+      if (!obj.category) obj.category = 'Divers';
+      if (!obj.description) obj.description = 'Bonne affaire détectée';
+      if (!obj.source) obj.source = '';
+      if (!obj.profit) obj.profit = (obj.estimatedValue ?? 0) - (obj.sellerPrice ?? 0);
+      console.log(`[ScanService] Repaired incomplete object: ${obj.title}`);
+      return obj as GeminiPepite;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function repairTruncatedJson(raw: string): { pepites: GeminiPepite[] } {
@@ -180,10 +230,9 @@ function repairTruncatedJson(raw: string): { pepites: GeminiPepite[] } {
   }
 
   const arrayStart = pepitesMatch.index + pepitesMatch[0].length;
-  const beforeArray = text.substring(0, arrayStart);
   const arrayContent = text.substring(arrayStart);
 
-  const completePepites: string[] = [];
+  const completePepites: GeminiPepite[] = [];
   let depth = 0;
   let inString = false;
   let escaped = false;
@@ -214,9 +263,9 @@ function repairTruncatedJson(raw: string): { pepites: GeminiPepite[] } {
       if (depth === 0 && objectStart >= 0) {
         const obj = arrayContent.substring(objectStart, i + 1);
         try {
-          JSON.parse(obj);
-          completePepites.push(obj);
-          console.log(`[ScanService] Recovered complete object #${completePepites.length}`);
+          const parsed = JSON.parse(obj);
+          completePepites.push(parsed);
+          console.log(`[ScanService] Recovered complete object #${completePepites.length}: ${parsed.title}`);
         } catch {
           console.log('[ScanService] Skipping malformed object');
         }
@@ -225,14 +274,22 @@ function repairTruncatedJson(raw: string): { pepites: GeminiPepite[] } {
     }
   }
 
+  if (depth > 0 && objectStart >= 0) {
+    console.log('[ScanService] Found truncated object at end, attempting repair...');
+    const incompleteObj = arrayContent.substring(objectStart);
+    const repaired = tryRepairIncompleteObject(incompleteObj);
+    if (repaired) {
+      completePepites.push(repaired);
+      console.log(`[ScanService] Successfully repaired truncated object: ${repaired.title}`);
+    }
+  }
+
   if (completePepites.length === 0) {
     throw new Error('Cannot repair: no complete pepite objects found');
   }
 
-  const repairedJson = `{"pepites": [${completePepites.join(',')}]}`;
-  const parsed = JSON.parse(repairedJson);
-  console.log(`[ScanService] Successfully recovered ${parsed.pepites.length} pepites from truncated response`);
-  return parsed;
+  console.log(`[ScanService] Successfully recovered ${completePepites.length} pepites from truncated response`);
+  return { pepites: completePepites };
 }
 
 function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite[] {
@@ -278,15 +335,15 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
 
   const now = new Date();
   const pepites: Pepite[] = parsed.pepites.map((p, index) => {
-    const isValidUrl = (url: string) => {
-      try {
-        return url.startsWith('http://') || url.startsWith('https://');
-      } catch {
-        return false;
-      }
+    const isValidCompleteUrl = (url: string) => {
+      if (!url || url.length < 10) return false;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+      if (url.endsWith('...') || url.includes('\n')) return false;
+      const hasExtOrPath = url.includes('.') && (url.includes('/') || url.includes('?'));
+      return hasExtOrPath;
     };
 
-    const imageUrl = p.adImageUrl && p.adImageUrl.length > 10 && isValidUrl(p.adImageUrl)
+    const imageUrl = p.adImageUrl && isValidCompleteUrl(p.adImageUrl)
       ? p.adImageUrl
       : getImageForQuery(p.imageKeyword ?? 'default');
 
@@ -328,7 +385,7 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[], isVideo: boole
       temperature: 0.2,
       topK: 40,
       topP: 0.95,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 16384,
       responseMimeType: 'application/json',
     },
   };
