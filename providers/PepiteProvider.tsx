@@ -30,18 +30,14 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   const [scanError, setScanError] = useState<string | null>(null);
 
   useEffect(() => {
-    setupNotifications().then((granted) => {
-      console.log('[PepiteProvider] Notifications setup:', granted ? 'granted' : 'denied');
-    });
+    setupNotifications().then(() => {});
   }, []);
 
   const pepitesQuery = useQuery({
     queryKey: ['pepites'],
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(STORAGE_KEYS.PEPITES);
-      if (stored) {
-        return JSON.parse(stored) as Pepite[];
-      }
+      if (stored) return JSON.parse(stored) as Pepite[];
       await AsyncStorage.setItem(STORAGE_KEYS.PEPITES, JSON.stringify(MOCK_PEPITES));
       return MOCK_PEPITES;
     },
@@ -51,23 +47,17 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     queryKey: ['settings'],
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(STORAGE_KEYS.SETTINGS);
-      if (stored) {
-        return JSON.parse(stored) as AppSettings;
-      }
+      if (stored) return JSON.parse(stored) as AppSettings;
       return DEFAULT_SETTINGS;
     },
   });
 
   useEffect(() => {
-    if (pepitesQuery.data) {
-      setPepites(pepitesQuery.data);
-    }
+    if (pepitesQuery.data) setPepites(pepitesQuery.data);
   }, [pepitesQuery.data]);
 
   useEffect(() => {
-    if (settingsQuery.data) {
-      setSettings(settingsQuery.data);
-    }
+    if (settingsQuery.data) setSettings(settingsQuery.data);
   }, [settingsQuery.data]);
 
   const savePepitesMutation = useMutation({
@@ -93,9 +83,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
   const toggleFavorite = useCallback((id: string) => {
     setPepites((prev) => {
-      const updated = prev.map((p) =>
-        p.id === id ? { ...p, isFavorite: !p.isFavorite } : p
-      );
+      const updated = prev.map((p) => p.id === id ? { ...p, isFavorite: !p.isFavorite } : p);
       savePepitesMutation.mutate(updated);
       return updated;
     });
@@ -103,9 +91,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
   const trashPepite = useCallback((id: string) => {
     setPepites((prev) => {
-      const updated = prev.map((p) =>
-        p.id === id ? { ...p, isTrashed: true, isFavorite: false } : p
-      );
+      const updated = prev.map((p) => p.id === id ? { ...p, isTrashed: true, isFavorite: false } : p);
       savePepitesMutation.mutate(updated);
       return updated;
     });
@@ -113,9 +99,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
   const restorePepite = useCallback((id: string) => {
     setPepites((prev) => {
-      const updated = prev.map((p) =>
-        p.id === id ? { ...p, isTrashed: false } : p
-      );
+      const updated = prev.map((p) => p.id === id ? { ...p, isTrashed: false } : p);
       savePepitesMutation.mutate(updated);
       return updated;
     });
@@ -149,38 +133,23 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
   const scanMutation = useMutation({
     mutationFn: async ({ merchantName, pageContent, screenshots }: { merchantName: string; pageContent: string; screenshots?: string[] }) => {
-      console.log('[PepiteProvider] ============ SCAN MUTATION START ============');
-      console.log(`[PepiteProvider] Merchant: ${merchantName}`);
-      console.log(`[PepiteProvider] API key present: ${settings.geminiApiKey.length > 0} (${settings.geminiApiKey.length} chars)`);
-      console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
-      console.log(`[PepiteProvider] Text content: ${pageContent.length} chars`);
-      if (pageContent.length > 0) {
-        console.log(`[PepiteProvider] Text preview: ${pageContent.substring(0, 200)}`);
-      } else {
-        console.warn('[PepiteProvider] ⚠️ EMPTY page content!');
-      }
+      
+      console.log(`[Architecture 2026] Lancement analyse de données hybrides...`);
+      console.log(`Volume de trafic intercepté : ${pageContent.length} bytes`);
 
       if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
         throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
       }
 
       if (screenshots && screenshots.length > 0) {
-        console.log(`[PepiteProvider] → VIDEO mode with ${screenshots.length} frames`);
         const results = await analyzeWithGeminiVideo(settings.geminiApiKey, merchantName, screenshots, pageContent);
-        console.log(`[PepiteProvider] ✅ VIDEO analysis returned ${results.length} pepites`);
         return results;
       }
 
-      console.log('[PepiteProvider] → TEXT-ONLY mode (no screenshots)');
       const results = await analyzeWithGemini(settings.geminiApiKey, merchantName, pageContent);
-      console.log(`[PepiteProvider] ✅ TEXT analysis returned ${results.length} pepites`);
       return results;
     },
     onSuccess: async (results) => {
-      console.log(`[PepiteProvider] ============ SCAN SUCCESS: ${results.length} pepites ============`);
-      results.forEach((p, i) => {
-        console.log(`[PepiteProvider]   #${i + 1}: ${p.title} | ${p.sellerPrice}€ → ${p.estimatedValue}€`);
-      });
       setLastScanResults(results);
 
       if (results.length > 0) {
@@ -189,13 +158,9 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
           await sendPepiteFoundNotification(results);
         }
       }
-
       setScanError(null);
     },
     onError: (error: Error) => {
-      console.error('[PepiteProvider] ============ SCAN ERROR ============');
-      console.error('[PepiteProvider] Error:', error.message);
-      console.error('[PepiteProvider] Stack:', error.stack);
       setScanError(error.message ?? 'Erreur lors de l\'analyse. Veuillez réessayer.');
     },
   });
@@ -210,33 +175,13 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   const stopScan = useCallback((merchantName: string, pageContent: string, screenshots?: string[]) => {
     setIsScanning(false);
     setScanTimer(0);
-    console.log('[PepiteProvider] ============ STOP SCAN → LAUNCHING ANALYSIS ============');
-    console.log(`[PepiteProvider] Merchant: ${merchantName}`);
-    console.log(`[PepiteProvider] Content: ${pageContent.length} chars`);
-    console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
-    console.log(`[PepiteProvider] Mode: ${screenshots && screenshots.length > 0 ? 'VIDEO (' + screenshots.length + ' frames)' : 'TEXT-ONLY'}`);
     scanMutation.mutate({ merchantName, pageContent, screenshots });
   }, [scanMutation]);
 
-  const activePepites = useMemo(
-    () => pepites.filter((p) => !p.isTrashed),
-    [pepites]
-  );
-
-  const favoritePepites = useMemo(
-    () => pepites.filter((p) => p.isFavorite && !p.isTrashed),
-    [pepites]
-  );
-
-  const trashedPepites = useMemo(
-    () => pepites.filter((p) => p.isTrashed),
-    [pepites]
-  );
-
-  const getPepiteById = useCallback(
-    (id: string) => pepites.find((p) => p.id === id),
-    [pepites]
-  );
+  const activePepites = useMemo(() => pepites.filter((p) => !p.isTrashed), [pepites]);
+  const favoritePepites = useMemo(() => pepites.filter((p) => p.isFavorite && !p.isTrashed), [pepites]);
+  const trashedPepites = useMemo(() => pepites.filter((p) => p.isTrashed), [pepites]);
+  const getPepiteById = useCallback((id: string) => pepites.find((p) => p.id === id), [pepites]);
 
   return {
     pepites,
