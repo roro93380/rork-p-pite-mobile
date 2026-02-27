@@ -106,13 +106,13 @@ Réponds UNIQUEMENT en JSON valide, sans markdown :
       "category": "Catégorie",
       "description": "Pourquoi c'est une bonne affaire",
       "imageKeyword": "mot-clé anglais (watch, sneakers, handbag, phone, laptop, console, jewelry, furniture, camera, vintage, gaming, clothing, bag, bike, book, vinyl, electronics, art, shoes)",
-      "adUrl": "L'URL de l'annonce si visible. IMPORTANT : Si l'URL contient un '?', garde uniquement la partie avant le '?' pour la raccourcir.",
-      "adImageUrl": "L'URL de l'image si visible. IMPORTANT : Garde uniquement la partie avant le '?' pour raccourcir l'URL. Ne mets JAMAIS de '...' !"
+      "adUrl": "URL de l'annonce si visible",
+      "adImageUrl": "URL COMPLÈTE de l'image produit si visible (IMPORTANT: copie l'URL entière sans la couper), sinon chaîne vide"
     }
   ]
 }
 
-IMPORTANT : Chaque objet JSON doit être COMPLET. Pour les URLs (adUrl et adImageUrl), coupe systématiquement tout ce qui se trouve après le point d'interrogation '?' pour éviter qu'elles soient trop longues. Ne mets JAMAIS de '...'.
+IMPORTANT : Chaque objet JSON doit être COMPLET. Ne coupe JAMAIS une URL en plein milieu. Si l'URL est trop longue, mets une chaîne vide plutôt que de la tronquer.
 
 Retourne 1-10 pépites. Si aucune annonce réelle : {"pepites": []}.`;
 }
@@ -157,13 +157,13 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
       "category": "Catégorie (Montres, Sneakers, Luxe, Électronique, Retro Gaming, Mode, Bijoux, Mobilier, Art, Vinyles)",
       "description": "Explication experte de pourquoi c'est une bonne affaire",
       "imageKeyword": "mot-clé anglais simple pour trouver une image",
-      "adUrl": "URL de l'annonce. IMPORTANT : Si l'URL contient un '?', garde uniquement la partie avant le '?' pour la raccourcir.",
-      "adImageUrl": "URL de l'image. IMPORTANT : Garde uniquement la partie avant le '?' pour raccourcir l'URL. Ne mets JAMAIS de '...' !"
+      "adUrl": "URL directe vers l'annonce RÉELLE extraite des données",
+      "adImageUrl": "URL COMPLÈTE de l'image du produit RÉELLE extraite des données (IMPORTANT: copie l'URL entière sans la couper), sinon chaîne vide"
     }
   ]
 }
 
-IMPORTANT : Chaque objet JSON doit être COMPLET. Pour les URLs (adUrl et adImageUrl), coupe systématiquement tout ce qui se trouve après le point d'interrogation '?' pour éviter qu'elles soient trop longues. Ne mets JAMAIS de '...'.
+IMPORTANT : Chaque objet JSON doit être COMPLET. Ne coupe JAMAIS une URL en plein milieu. Si l'URL est trop longue, mets une chaîne vide plutôt que de la tronquer.
 
 Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en trouves. La moindre marge de 8% suffit. Si aucune annonce réelle n'est trouvée, retourne : {"pepites": []}.`;
 }
@@ -385,8 +385,7 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[], isVideo: boole
       temperature: 0.2,
       topK: 40,
       topP: 0.95,
-      // Augmentation du nombre de tokens max pour éviter que la réponse ne soit tronquée avec les longues URLs
-      maxOutputTokens: 32768,
+      maxOutputTokens: 16384,
       responseMimeType: 'application/json',
     },
   };
