@@ -415,9 +415,6 @@ export default function ScanScreen() {
           </View>
 
           <Text style={styles.analyzingTitle}>Analyse en cours...</Text>
-          <Text style={styles.analyzingSubtitle}>
-            {captureCount} captures envoyées à l'IA
-          </Text>
 
           <View style={styles.progressBar}>
             <Animated.View style={[styles.progressFill, { width: progressWidth }]} />

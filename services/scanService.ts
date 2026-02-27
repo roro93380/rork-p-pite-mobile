@@ -391,43 +391,20 @@ export async function analyzeWithGeminiVideo(
   const prompt = buildVideoPrompt(merchantName, pageContent);
   console.log(`[ScanService] Prompt length: ${prompt.length} chars`);
 
-  try {
-    console.log('[ScanService] Creating video from frames...');
-    const videoBase64 = createMjpegVideoFromFrames(selectedFrames);
-    console.log(`[ScanService] Video size: ${Math.round(videoBase64.length / 1024)}KB`);
-
-    const parts: GeminiPart[] = [
-      { text: prompt },
-      {
-        inlineData: {
-          mimeType: 'video/mjpeg',
-          data: videoBase64,
-        },
+  const parts: GeminiPart[] = [{ text: prompt }];
+  for (const frame of selectedFrames) {
+    parts.push({
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: frame,
       },
-    ];
-
-    console.log('[ScanService] Sending 1 video + 1 prompt to Gemini (single request)');
-    const data = await callGeminiApi(apiKey, parts, true);
-    console.log('[ScanService] Gemini video analysis response received');
-    return parseGeminiResponse(data, merchantName);
-  } catch (videoError) {
-    console.warn('[ScanService] Video mode failed, falling back to image mode:', videoError);
-
-    const parts: GeminiPart[] = [{ text: prompt }];
-    for (const frame of selectedFrames) {
-      parts.push({
-        inlineData: {
-          mimeType: 'image/jpeg',
-          data: frame,
-        },
-      });
-    }
-
-    console.log(`[ScanService] Fallback: sending ${selectedFrames.length} images + prompt`);
-    const data = await callGeminiApi(apiKey, parts);
-    console.log('[ScanService] Gemini fallback analysis response received');
-    return parseGeminiResponse(data, merchantName);
+    });
   }
+
+  console.log(`[ScanService] Sending ${selectedFrames.length} images + prompt to Gemini`);
+  const data = await callGeminiApi(apiKey, parts);
+  console.log('[ScanService] Gemini image analysis response received');
+  return parseGeminiResponse(data, merchantName);
 }
 
 export async function analyzeWithGemini(
