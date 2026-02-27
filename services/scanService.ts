@@ -107,12 +107,17 @@ Réponds UNIQUEMENT en JSON valide, sans markdown :
       "description": "Pourquoi c'est une bonne affaire",
       "imageKeyword": "mot-clé anglais (watch, sneakers, handbag, phone, laptop, console, jewelry, furniture, camera, vintage, gaming, clothing, bag, bike, book, vinyl, electronics, art, shoes)",
       "adUrl": "URL de l'annonce si visible",
-      "adImageUrl": "URL COMPLÈTE de l'image produit si visible (IMPORTANT: copie l'URL entière sans la couper), sinon chaîne vide"
+      "adImageUrl": "URL de l'image produit UNIQUEMENT si elle fait moins de 200 caractères, sinon chaîne vide"
     }
   ]
 }
 
-IMPORTANT : Chaque objet JSON doit être COMPLET. Ne coupe JAMAIS une URL en plein milieu. Si l'URL est trop longue, mets une chaîne vide plutôt que de la tronquer.
+RÈGLES CRITIQUES POUR LE JSON :
+- Chaque objet DOIT être complet avec TOUTES les clés
+- Si une URL fait plus de 200 caractères, mets "" (chaîne vide) à la place
+- Ne coupe JAMAIS une URL ou une valeur en plein milieu
+- Privilégie des URLs courtes. Si tu ne peux pas, mets ""
+- adUrl : garde UNIQUEMENT la partie avant le "?" si l'URL est longue
 
 Retourne 1-10 pépites. Si aucune annonce réelle : {"pepites": []}.`;
 }
@@ -158,12 +163,17 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
       "description": "Explication experte de pourquoi c'est une bonne affaire",
       "imageKeyword": "mot-clé anglais simple pour trouver une image",
       "adUrl": "URL directe vers l'annonce RÉELLE extraite des données",
-      "adImageUrl": "URL COMPLÈTE de l'image du produit RÉELLE extraite des données (IMPORTANT: copie l'URL entière sans la couper), sinon chaîne vide"
+      "adImageUrl": "URL de l'image produit UNIQUEMENT si elle fait moins de 200 caractères, sinon chaîne vide"
     }
   ]
 }
 
-IMPORTANT : Chaque objet JSON doit être COMPLET. Ne coupe JAMAIS une URL en plein milieu. Si l'URL est trop longue, mets une chaîne vide plutôt que de la tronquer.
+RÈGLES CRITIQUES POUR LE JSON :
+- Chaque objet DOIT être complet avec TOUTES les clés
+- Si une URL fait plus de 200 caractères, mets "" (chaîne vide) à la place
+- Ne coupe JAMAIS une URL ou une valeur en plein milieu
+- Privilégie des URLs courtes. Si tu ne peux pas, mets ""
+- adUrl : garde UNIQUEMENT la partie avant le "?" si l'URL est longue
 
 Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en trouves. La moindre marge de 8% suffit. Si aucune annonce réelle n'est trouvée, retourne : {"pepites": []}.`;
 }
@@ -385,7 +395,7 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[], isVideo: boole
       temperature: 0.2,
       topK: 40,
       topP: 0.95,
-      maxOutputTokens: 16384,
+      maxOutputTokens: 32768,
       responseMimeType: 'application/json',
     },
   };
