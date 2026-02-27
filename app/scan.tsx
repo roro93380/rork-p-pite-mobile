@@ -21,7 +21,6 @@ import Colors from '@/constants/colors';
 import GoldButton from '@/components/GoldButton';
 import { usePepite } from '@/providers/PepiteProvider';
 import { MERCHANTS } from '@/mocks/merchants';
-import { ExtractedAd, getAdExtractionScript } from '@/services/scanService';
 
 const CAPTURE_INTERVAL_MS = 2500;
 const SCAN_DURATION_LIMIT = 30;
@@ -57,11 +56,8 @@ export default function ScanScreen() {
   const [analysisStep, setAnalysisStep] = useState<number>(0);
 
   const webViewRef = useRef<View>(null);
-  const webViewInstanceRef = useRef<any>(null);
   const screenshotsRef = useRef<string[]>([]);
-  const extractedAdsRef = useRef<ExtractedAd[]>([]);
   const captureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const extractIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isCapturingRef = useRef<boolean>(false);
 
@@ -207,46 +203,11 @@ export default function ScanScreen() {
     }
   }, []);
 
-  const injectExtractionScript = useCallback(() => {
-    if (webViewInstanceRef.current && Platform.OS !== 'web') {
-      webViewInstanceRef.current.injectJavaScript(getAdExtractionScript());
-    }
-  }, []);
-
-  const handleWebViewMessage = useCallback((event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'EXTRACTED_ADS' && Array.isArray(data.ads)) {
-        const newAds = data.ads as ExtractedAd[];
-        if (newAds.length > 0) {
-          const existingIds = new Set(extractedAdsRef.current.map(a => a.url || a.title));
-          let addedCount = 0;
-          for (const ad of newAds) {
-            const key = ad.url || ad.title;
-            if (!existingIds.has(key)) {
-              existingIds.add(key);
-              extractedAdsRef.current.push(ad);
-              addedCount++;
-            }
-          }
-          const total = extractedAdsRef.current.length;
-          extractedAdsRef.current = extractedAdsRef.current.slice(0, 50).map((ad, i) => ({ ...ad, id: `ad_${i}` }));
-          if (addedCount > 0) {
-            console.log(`[ScanScreen] Extracted +${addedCount} ads (total: ${total})`);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[ScanScreen] WebView message parse error:', err);
-    }
-  }, []);
-
   const startRecording = useCallback((url: string, merchantName: string) => {
     console.log(`[ScanScreen] Starting recording for ${merchantName} at ${url}`);
     setSelectedUrl(url);
     setSelectedMerchant(merchantName);
     screenshotsRef.current = [];
-    extractedAdsRef.current = [];
     setCaptureCount(0);
     setTimer(0);
     setPhase('recording');
@@ -260,12 +221,8 @@ export default function ScanScreen() {
       captureIntervalRef.current = setInterval(() => {
         captureScreenshot();
       }, CAPTURE_INTERVAL_MS);
-
-      extractIntervalRef.current = setInterval(() => {
-        injectExtractionScript();
-      }, 3000);
     }, 2000);
-  }, [startScan, captureScreenshot, injectExtractionScript]);
+  }, [startScan, captureScreenshot]);
 
   const handleMerchantSelect = useCallback((merchant: typeof MERCHANTS[0]) => {
     startRecording(merchant.url, merchant.name);
@@ -290,25 +247,13 @@ export default function ScanScreen() {
       clearInterval(captureIntervalRef.current);
       captureIntervalRef.current = null;
     }
-    if (extractIntervalRef.current) {
-      clearInterval(extractIntervalRef.current);
-      extractIntervalRef.current = null;
-    }
 
-    injectExtractionScript();
+    const frames = [...screenshotsRef.current];
+    console.log(`[ScanScreen] Stopping scan after ${timer}s with ${frames.length} frames`);
 
-    setTimeout(() => {
-      const frames = [...screenshotsRef.current];
-      const ads = [...extractedAdsRef.current];
-      console.log(`[ScanScreen] Stopping scan after ${timer}s with ${frames.length} frames and ${ads.length} extracted ads`);
-      ads.forEach((ad, i) => {
-        console.log(`[ScanScreen]   ad_${i}: "${ad.title}" ${ad.price}€`);
-      });
-
-      setPhase('analyzing');
-      stopScan(selectedMerchant, '', frames, ads);
-    }, 500);
-  }, [stopScan, timer, selectedMerchant, injectExtractionScript]);
+    setPhase('analyzing');
+    stopScan(selectedMerchant, '', frames);
+  }, [stopScan, timer, selectedMerchant]);
 
   const handleViewResults = useCallback(() => {
     router.replace('/');
@@ -420,16 +365,11 @@ export default function ScanScreen() {
               </View>
             ) : (
               <WebView
-                ref={webViewInstanceRef}
                 source={{ uri: selectedUrl }}
                 style={styles.webView}
                 javaScriptEnabled
                 domStorageEnabled
                 startInLoadingState
-                onMessage={handleWebViewMessage}
-                onLoadEnd={() => {
-                  setTimeout(() => injectExtractionScript(), 1500);
-                }}
                 renderLoading={() => (
                   <View style={styles.webViewLoading}>
                     <ActivityIndicator size="large" color={Colors.gold} />
