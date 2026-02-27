@@ -167,23 +167,70 @@ Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en tr
 function repairTruncatedJson(raw: string): { pepites: GeminiPepite[] } {
   let text = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
 
-  const lastCompleteObject = text.lastIndexOf('},');
-  const lastClosingBrace = text.lastIndexOf('}]');
+  console.log('[ScanService] Attempting JSON repair, text length:', text.length);
 
-  if (lastClosingBrace > lastCompleteObject && lastClosingBrace > 0) {
-    text = text.substring(0, lastClosingBrace + 2) + '}';
-    console.log('[ScanService] Repaired JSON by trimming after last complete array entry');
-  } else if (lastCompleteObject > 0) {
-    text = text.substring(0, lastCompleteObject + 1) + ']}';
-    console.log('[ScanService] Repaired JSON by closing after last complete object');
-  } else {
-    throw new Error('Cannot repair: no complete object found');
+  try {
+    const direct = JSON.parse(text);
+    if (direct.pepites && Array.isArray(direct.pepites)) return direct;
+  } catch {}
+
+  const pepitesMatch = text.match(/"pepites"\s*:\s*\[/);
+  if (!pepitesMatch || pepitesMatch.index === undefined) {
+    throw new Error('Cannot repair: no pepites array found');
   }
 
-  const parsed = JSON.parse(text);
-  if (!parsed.pepites || !Array.isArray(parsed.pepites)) {
-    throw new Error('Repaired JSON missing pepites array');
+  const arrayStart = pepitesMatch.index + pepitesMatch[0].length;
+  const beforeArray = text.substring(0, arrayStart);
+  const arrayContent = text.substring(arrayStart);
+
+  const completePepites: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let objectStart = -1;
+
+  for (let i = 0; i < arrayContent.length; i++) {
+    const ch = arrayContent[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (ch === '{') {
+      if (depth === 0) objectStart = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && objectStart >= 0) {
+        const obj = arrayContent.substring(objectStart, i + 1);
+        try {
+          JSON.parse(obj);
+          completePepites.push(obj);
+          console.log(`[ScanService] Recovered complete object #${completePepites.length}`);
+        } catch {
+          console.log('[ScanService] Skipping malformed object');
+        }
+        objectStart = -1;
+      }
+    }
   }
+
+  if (completePepites.length === 0) {
+    throw new Error('Cannot repair: no complete pepite objects found');
+  }
+
+  const repairedJson = `{"pepites": [${completePepites.join(',')}]}`;
+  const parsed = JSON.parse(repairedJson);
   console.log(`[ScanService] Successfully recovered ${parsed.pepites.length} pepites from truncated response`);
   return parsed;
 }
