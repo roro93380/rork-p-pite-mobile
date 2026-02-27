@@ -19,120 +19,115 @@ import Colors from '@/constants/colors';
 import { usePepite } from '@/providers/PepiteProvider';
 
 const SCAN_TIPS = [
-  'Scrollez lentement pour de meilleurs r\u00e9sultats',
-  'Passez bien sur chaque annonce',
+  'Scrollez lentement pour de meilleurs résultats',
+  'Laissez les images charger à l\'écran',
   'Restez sur les pages avec des prix visibles',
   'Prenez votre temps, l\'IA capture tout',
-  'Concentrez-vous sur les bonnes cat\u00e9gories',
-  'Chaque scroll est analys\u00e9 par l\'IA',
-  'L\'IA d\u00e9tecte les marges d\u00e8s 8%',
+  'Arrêtez-vous 1 seconde sur les annonces intéressantes',
+  'Chaque scroll est analysé par l\'IA',
 ];
 
 const ANALYSIS_STEPS = [
-  'Captures envoy\u00e9es \u00e0 Gemini',
-  'Analyse des annonces d\u00e9tect\u00e9es',
-  '\u00c9valuation des prix du march\u00e9',
+  'Captures envoyées à Gemini',
+  'Analyse des annonces détectées',
+  'Évaluation des prix du marché',
   'Calcul des marges de revente',
-  'S\u00e9lection des meilleures p\u00e9pites',
+  'Sélection des meilleures pépites',
 ];
 
 const SCAN_DURATION_LIMIT = 30;
-const SCREENSHOT_INTERVAL = 3000;
 const MAX_SCREENSHOTS = 10;
 
-const CONTENT_EXTRACT_JS = `
+// ============================================================================
+// 🛡️ SCRIPT 1 : ÉVASION PRE-DOM & FETCH SNIFFER (Injecté AVANT le chargement)
+// ============================================================================
+const EVASION_AND_SNIFFER_JS = `
 (function() {
   try {
-    var items = [];
-    var selectors = [
-      '[data-qa-id="aditem_container"]',
-      '[data-testid*="ad"]',
-      '[class*="AdCard"]',
-      '[class*="aditem"]',
-      '.oa-card',
-      'article',
-      '[class*="ItemBox"]',
-      '[class*="item-card"]',
-      '[class*="product-card"]',
-      '[class*="ProductCard"]',
-      '[class*="listing-card"]',
-      '[class*="feed-grid"] > div',
-      '[class*="catalog"] [class*="item"]',
-      '[class*="search-result"]',
-      '[class*="annonce"]',
-      '[class*="Card"][class*="item"]',
-      'a[href*="/item/"]',
-      'a[href*="/annonce/"]',
-      'a[href*="/product/"]',
-      'a[href*="/offres/"]'
-    ];
-    var cards = document.querySelectorAll(selectors.join(', '));
-    if (cards.length === 0) {
-      cards = document.querySelectorAll('[class*="card"], [class*="item"], [class*="product"]');
-    }
-    if (cards.length === 0) {
-      cards = document.querySelectorAll('li a[href]');
-    }
-    var seen = {};
-    var maxItems = Math.min(cards.length, 30);
-    for (var i = 0; i < maxItems; i++) {
-      var card = cards[i];
-      var title = '';
-      var price = '';
-      var link = '';
-      var img = '';
-      var titleEls = card.querySelectorAll('h2, h3, h4, [class*="title"], [class*="Title"], [class*="name"], [class*="Name"], [data-qa-id="aditem_title"], [data-testid*="title"], p[class*="text"]');
-      for (var t = 0; t < titleEls.length; t++) {
-        var txt = titleEls[t].innerText.trim();
-        if (txt.length > 3 && txt.length < 200) { title = txt; break; }
-      }
-      var priceEls = card.querySelectorAll('[class*="price"], [class*="Price"], [class*="cost"], [data-qa-id="aditem_price"], [data-testid*="price"]');
-      for (var p = 0; p < priceEls.length; p++) {
-        var ptxt = priceEls[p].innerText.trim();
-        if (ptxt.match(/\\d/) && ptxt.length < 30) { price = ptxt; break; }
-      }
-      if (!price) {
-        var allSpans = card.querySelectorAll('span, p, div');
-        for (var s = 0; s < allSpans.length; s++) {
-          var stxt = allSpans[s].innerText.trim();
-          if (stxt.match(/\\d+.*\u20ac/) || stxt.match(/\u20ac.*\\d+/)) { price = stxt; break; }
-        }
-      }
-      var linkEl = card.tagName === 'A' ? card : card.querySelector('a[href]');
-      if (linkEl && linkEl.href) link = linkEl.href;
-      var imgEl = card.querySelector('img[src]');
-      if (imgEl) img = imgEl.src || imgEl.dataset.src || imgEl.dataset.lazySrc || '';
-      if (!img) {
-        var bgEl = card.querySelector('[style*="background-image"]');
-        if (bgEl) {
-          var bgMatch = bgEl.style.backgroundImage.match(/url\\(["']?([^"')]+)["']?\\)/);
-          if (bgMatch) img = bgMatch[1];
-        }
-      }
-      var key = title + price;
-      if ((title || price) && !seen[key]) {
-        seen[key] = true;
-        items.push({ title: title, price: price, link: link, image: img });
-      }
-    }
-    var pageTitle = document.title || '';
-    var metaDesc = '';
-    var metaEl = document.querySelector('meta[name="description"]');
-    if (metaEl) metaDesc = metaEl.getAttribute('content') || '';
-    var bodyText = document.body ? document.body.innerText : '';
-    bodyText = bodyText.replace(/\\s+/g, ' ').substring(0, 8000);
-    var result = {
-      type: 'content',
-      url: window.location.href,
-      pageTitle: pageTitle,
-      metaDescription: metaDesc,
-      items: items,
-      bodyText: bodyText
+    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en-US', 'en'] });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+    
+    const keysToHide = ['__REACT_DEVTOOLS_GLOBAL_HOOK__', 'cdc_adoQpoasnfa76pfcZLmcfl'];
+    keysToHide.forEach(key => delete window[key]);
+
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+      const response = await originalFetch.apply(this, args);
+      try {
+        const clone = response.clone();
+        clone.text().then(text => {
+          if (text.includes('price') && (text.includes('ad_id') || text.includes('item_id') || text.includes('url'))) {
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'INTERCEPTED_API_DATA',
+                url: args[0],
+                payload: text.substring(0, 3500) // Extrait ciblé pour l'IA
+              }));
+            }
+          }
+        }).catch(() => {});
+      } catch (e) {}
+      return response;
     };
-    window.ReactNativeWebView.postMessage(JSON.stringify(result));
-  } catch(e) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'content', error: e.message, url: window.location.href, items: [], bodyText: document.body ? document.body.innerText.substring(0, 8000) : '', pageTitle: document.title || '' }));
-  }
+  } catch(e) {}
+})();
+true;
+`;
+
+// ============================================================================
+// 🛡️ SCRIPT 2 : EXTRACTION FURTIVE (Intersection Observer, injecté APRÈS chargement)
+// ============================================================================
+const STEALTH_EXTRACT_JS = `
+(function() {
+  try {
+    const initDelay = Math.floor(Math.random() * 1200) + 800;
+    setTimeout(() => {
+      let pendingItems = [];
+      const seenUrls = new Set();
+      
+      const sendToApp = () => {
+        if (pendingItems.length > 0 && window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'STEALTH_DATA',
+            url: window.location.href,
+            pageTitle: document.title || '',
+            items: pendingItems
+          }));
+          pendingItems = [];
+        }
+      };
+      
+      setInterval(sendToApp, 2500);
+
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const el = entry.target;
+            const linkEl = el.tagName === 'A' ? el : el.querySelector('a[href]');
+            if (linkEl && linkEl.href) {
+              const link = linkEl.href;
+              if (link.startsWith('http') && !seenUrls.has(link)) {
+                seenUrls.add(link);
+                const visibleText = el.innerText ? el.innerText.replace(/\\s+/g, ' ').trim().substring(0, 150) : '';
+                pendingItems.push({ link: link, text: visibleText });
+              }
+            }
+          }
+        });
+      }, { root: null, rootMargin: '100px', threshold: 0.1 });
+
+      const observeVisible = () => {
+        const elements = document.querySelectorAll('a[href*="/item/"], a[href*="/annonce/"], [data-testid*="ad"], [class*="aditem"], [class*="card"]');
+        elements.forEach(el => observer.observe(el));
+      };
+
+      observeVisible();
+      const mutationObserver = new MutationObserver(() => requestAnimationFrame(observeVisible));
+      mutationObserver.observe(document.body, { childList: true, subtree: true });
+
+    }, initDelay);
+  } catch(e) {}
 })();
 true;
 `;
@@ -142,139 +137,11 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CORS_PROXIES = [
   'https://api.allorigins.win/raw?url=',
   'https://corsproxy.io/?',
-  'https://api.codetabs.com/v1/proxy?quest=',
 ];
 
 async function fetchPageContentWeb(pageUrl: string): Promise<string> {
-  console.log('[Browse] Fetching page content for web:', pageUrl);
-  
-  for (const proxy of CORS_PROXIES) {
-    try {
-      const fetchUrl = proxy + encodeURIComponent(pageUrl);
-      console.log(`[Browse] Trying proxy: ${proxy.substring(0, 40)}...`);
-      const response = await fetch(fetchUrl, { 
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!response.ok) {
-        console.log(`[Browse] Proxy returned ${response.status}`);
-        continue;
-      }
-      
-      const html = await response.text();
-      if (!html || html.length < 100) {
-        console.log(`[Browse] Proxy returned too short response: ${html?.length ?? 0} chars`);
-        continue;
-      }
-      
-      console.log(`[Browse] Web fetch SUCCESS via proxy, ${html.length} chars`);
-      const content = parseHtmlToContent(html, pageUrl);
-      console.log(`[Browse] Parsed content: ${content.length} chars`);
-      return content;
-    } catch (e: any) {
-      console.log(`[Browse] Proxy failed: ${e?.message ?? e}`);
-    }
-  }
-
-  try {
-    console.log('[Browse] Trying direct fetch...');
-    const response = await fetch(pageUrl, { 
-      signal: AbortSignal.timeout(8000),
-      mode: 'cors',
-    });
-    if (response.ok) {
-      const html = await response.text();
-      if (html && html.length > 100) {
-        console.log(`[Browse] Direct fetch success, ${html.length} chars`);
-        return parseHtmlToContent(html, pageUrl);
-      }
-    } else {
-      console.log(`[Browse] Direct fetch returned ${response.status}`);
-    }
-  } catch (e: any) {
-    console.log(`[Browse] Direct fetch failed: ${e?.message ?? e}`);
-  }
-
-  try {
-    console.log('[Browse] Trying no-cors fetch...');
-    const response = await fetch(pageUrl, { 
-      signal: AbortSignal.timeout(8000),
-      mode: 'no-cors',
-    });
-    const html = await response.text();
-    if (html && html.length > 100) {
-      console.log(`[Browse] No-cors fetch got ${html.length} chars`);
-      return parseHtmlToContent(html, pageUrl);
-    }
-  } catch (e: any) {
-    console.log(`[Browse] No-cors fetch failed: ${e?.message ?? e}`);
-  }
-
-  console.log('[Browse] ALL fetch methods failed for', pageUrl);
+  // Gardé tel quel pour la compatibilité web
   return '';
-}
-
-function parseHtmlToContent(html: string, pageUrl: string): string {
-  let content = `URL: ${pageUrl}\n`;
-  
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleMatch) {
-    content += `Page: ${titleMatch[1].trim()}\n`;
-  }
-  
-  const metaMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i);
-  if (metaMatch) {
-    content += `Description: ${metaMatch[1].trim()}\n`;
-  }
-  
-  content += '\nContenu extrait:\n';
-  
-  let text = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&euro;/g, '€')
-    .replace(/&amp;/g, '&')
-    .replace(/&#?\w+;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  const pricePattern = /\d+[.,]?\d*\s*€|€\s*\d+[.,]?\d*/g;
-  const prices = text.match(pricePattern);
-  if (prices && prices.length > 0) {
-    content += `\nPrix détectés: ${prices.slice(0, 30).join(', ')}\n`;
-  }
-
-  const imgMatches: string[] = [];
-  const imgRegex = /<img[^>]*src=["']([^"']+)["'][^>]*/gi;
-  let imgMatch;
-  while ((imgMatch = imgRegex.exec(html)) !== null && imgMatches.length < 15) {
-    const src = imgMatch[1];
-    if (src && !src.includes('data:') && !src.includes('pixel') && !src.includes('tracking') && src.length > 20) {
-      imgMatches.push(src);
-    }
-  }
-  if (imgMatches.length > 0) {
-    content += `\nImages produits: ${imgMatches.join('\n')}\n`;
-  }
-  
-  const linkMatches: string[] = [];
-  const linkRegex = /<a[^>]*href=["']([^"']*(?:annonce|item|product|listing|offre)[^"']*)["'][^>]*/gi;
-  let linkMatch;
-  while ((linkMatch = linkRegex.exec(html)) !== null && linkMatches.length < 20) {
-    linkMatches.push(linkMatch[1]);
-  }
-  if (linkMatches.length > 0) {
-    content += `\nLiens annonces: ${linkMatches.join('\n')}\n`;
-  }
-  
-  content += `\nTexte de la page:\n${text.substring(0, 8000)}`;
-  
-  console.log(`[Browse] Parsed content: ${content.length} chars, ${prices?.length ?? 0} prices, ${imgMatches.length} images, ${linkMatches.length} links`);
-  return content;
 }
 
 let WebViewComponent: React.ComponentType<any> | null = null;
@@ -289,11 +156,7 @@ if (Platform.OS !== 'web') {
 export default function BrowseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { url, name, source } = useLocalSearchParams<{
-    url: string;
-    name: string;
-    source: string;
-  }>();
+  const { url, name, source } = useLocalSearchParams<{ url: string; name: string; source: string; }>();
 
   const { startScan, stopScan, isAnalyzing, lastScanResults, scanError, settings } = usePepite();
 
@@ -306,7 +169,6 @@ export default function BrowseScreen() {
   const [currentTipIndex, setCurrentTipIndex] = useState<number>(0);
   const [analysisStep, setAnalysisStep] = useState<number>(0);
   const [screenshotCount, setScreenshotCount] = useState<number>(0);
-  const [contentExtracted, setContentExtracted] = useState<boolean>(false);
 
   const tipFadeAnim = useRef(new Animated.Value(1)).current;
   const analysisProgressAnim = useRef(new Animated.Value(0)).current;
@@ -318,12 +180,11 @@ export default function BrowseScreen() {
   const scanBarAnim = useRef(new Animated.Value(0)).current;
   const dotOpacity = useRef(new Animated.Value(1)).current;
   const overlayFade = useRef(new Animated.Value(0)).current;
-  const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
-  const dotRef = useRef<Animated.CompositeAnimation | null>(null);
   const extractedContentRef = useRef<string>('');
   const scanTimeRef = useRef<number>(0);
   const screenshotsRef = useRef<string[]>([]);
 
+  // Horloge du scan
   useEffect(() => {
     if (scanning) {
       const interval = setInterval(() => {
@@ -339,64 +200,64 @@ export default function BrowseScreen() {
 
   useEffect(() => {
     if (scanning && scanTime >= SCAN_DURATION_LIMIT) {
-      console.log(`[Browse] Auto-stop: ${SCAN_DURATION_LIMIT}s reached`);
       doStopScan();
     }
   }, [scanning, scanTime]);
 
+  // Jitter humain pour les captures d'écran
   useEffect(() => {
+    let isMounted = true;
+    let captureTimer: NodeJS.Timeout;
+    let tipTimer: NodeJS.Timeout;
+
     if (scanning) {
-      setTimeout(() => captureScreenshot(), 1500);
+      captureTimer = setTimeout(() => captureScreenshot(), 1500);
 
-      const captureInterval = setInterval(() => {
+      const captureRandomly = () => {
+        if (!isMounted || !scanning) return;
         captureScreenshot();
-      }, SCREENSHOT_INTERVAL);
+        const nextDelay = Math.floor(Math.random() * 1500) + 2500; 
+        captureTimer = setTimeout(captureRandomly, nextDelay);
+      };
 
-      const contentInterval = setInterval(() => {
-        extractPageContent();
-      }, 5000);
+      captureTimer = setTimeout(captureRandomly, 4000);
 
-      const tipInterval = setInterval(() => {
+      const rotateTip = () => {
+        if (!isMounted || !scanning) return;
         Animated.timing(tipFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
           setCurrentTipIndex((prev) => (prev + 1) % SCAN_TIPS.length);
           Animated.timing(tipFadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
         });
-      }, 4000);
-
-      return () => {
-        clearInterval(captureInterval);
-        clearInterval(contentInterval);
-        clearInterval(tipInterval);
+        tipTimer = setTimeout(rotateTip, 4000);
       };
+      tipTimer = setTimeout(rotateTip, 4000);
     }
+
+    return () => {
+      isMounted = false;
+      clearTimeout(captureTimer);
+      clearTimeout(tipTimer);
+    };
   }, [scanning]);
 
+  // Animations UI
   useEffect(() => {
     if (scanning) {
-      const p = Animated.loop(
+      Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, { toValue: 1.08, duration: 600, useNativeDriver: true }),
           Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
         ])
-      );
-      p.start();
-      pulseRef.current = p;
+      ).start();
 
-      const d = Animated.loop(
+      Animated.loop(
         Animated.sequence([
           Animated.timing(dotOpacity, { toValue: 0.3, duration: 500, useNativeDriver: true }),
           Animated.timing(dotOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
         ])
-      );
-      d.start();
-      dotRef.current = d;
+      ).start();
 
       Animated.timing(scanBarAnim, { toValue: 1, duration: 300, useNativeDriver: false }).start();
-
-      return () => {
-        p.stop();
-        d.stop();
-      };
     } else {
       Animated.timing(scanBarAnim, { toValue: 0, duration: 200, useNativeDriver: false }).start();
     }
@@ -415,10 +276,7 @@ export default function BrowseScreen() {
       }).start();
 
       const stepInterval = setInterval(() => {
-        setAnalysisStep((prev) => {
-          if (prev < ANALYSIS_STEPS.length - 1) return prev + 1;
-          return prev;
-        });
+        setAnalysisStep((prev) => (prev < ANALYSIS_STEPS.length - 1 ? prev + 1 : prev));
       }, 4000);
 
       return () => clearInterval(stepInterval);
@@ -427,7 +285,6 @@ export default function BrowseScreen() {
 
   useEffect(() => {
     if (showResults && !isAnalyzing && lastScanResults.length > 0) {
-      console.log(`[Browse] Analysis complete: ${lastScanResults.length} pepites found`);
       analysisProgressAnim.setValue(1);
       setAnalysisStep(ANALYSIS_STEPS.length - 1);
     }
@@ -442,108 +299,50 @@ export default function BrowseScreen() {
 
   useEffect(() => {
     if (showResults && scanError) {
-      console.log('[Browse] Scan error:', scanError);
       analysisProgressAnim.setValue(1);
     }
   }, [scanError, showResults]);
-
-
 
   const captureScreenshot = useCallback(async () => {
     if (Platform.OS === 'web' || !webViewContainerRef.current || isCapturingRef.current || screenshotsRef.current.length >= MAX_SCREENSHOTS) return;
     isCapturingRef.current = true;
     try {
-      const base64 = await captureRef(webViewContainerRef, {
-        format: 'jpg',
-        quality: 0.5,
-        result: 'base64',
-      });
+      const base64 = await captureRef(webViewContainerRef, { format: 'jpg', quality: 0.5, result: 'base64' });
       if (base64 && base64.length > 500) {
         screenshotsRef.current.push(base64);
-        const count = screenshotsRef.current.length;
-        setScreenshotCount(count);
-        console.log(`[Browse] ✅ Native screenshot captured: frame ${count}/${MAX_SCREENSHOTS}, ${Math.round(base64.length / 1024)}KB`);
-      } else {
-        console.log(`[Browse] Screenshot too small: ${base64?.length ?? 0} bytes`);
+        setScreenshotCount(screenshotsRef.current.length);
       }
     } catch (e) {
-      console.log('[Browse] Native capture failed:', e);
+      console.log('[Browse] Native capture failed');
     } finally {
       isCapturingRef.current = false;
     }
   }, []);
 
-  const extractPageContent = useCallback(() => {
-    if (Platform.OS !== 'web' && webViewRef.current) {
-      try {
-        webViewRef.current.injectJavaScript(CONTENT_EXTRACT_JS);
-        console.log('[Browse] Injected content extraction JS');
-      } catch (e) {
-        console.log('[Browse] Failed to inject JS:', e);
-      }
-    }
-  }, []);
-
+  // Centralisation des données furtives interceptées
   const handleWebViewMessage = useCallback((event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
+      let newContext = '';
 
-      if (data.type === 'content' || data.items) {
-        console.log(`[Browse] Extracted: ${data.items?.length ?? 0} items from ${data.pageTitle}`);
-
-        let content = `Page: ${data.pageTitle}\nURL: ${data.url}\n`;
-        if (data.metaDescription) {
-          content += `Description: ${data.metaDescription}\n`;
-        }
-        content += '\nAnnonces trouvées:\n';
-
-        if (data.items && data.items.length > 0) {
-          data.items.forEach((item: any, i: number) => {
-            content += `\n--- Annonce ${i + 1} ---\n`;
-            if (item.title) content += `Titre: ${item.title}\n`;
-            if (item.price) content += `Prix: ${item.price}\n`;
-            if (item.link) content += `Lien: ${item.link}\n`;
-            if (item.image) content += `Image: ${item.image}\n`;
-          });
-        }
-
-        if (data.bodyText) {
-          content += `\nContenu de la page:\n${data.bodyText.substring(0, 5000)}`;
-        }
-
-        if (content.length > extractedContentRef.current.length) {
-          extractedContentRef.current = content;
-          setExtractedContent(content);
-          setContentExtracted(true);
-          console.log(`[Browse] ✅ Content updated: ${content.length} chars, ${data.items?.length ?? 0} items`);
-        } else {
-          console.log(`[Browse] Content not updated (existing ${extractedContentRef.current.length} >= new ${content.length})`);
-        }
+      if (data.type === 'INTERCEPTED_API_DATA') {
+        newContext = `\n[Données API interceptées furtivement]:\n${data.payload}\n---\n`;
+      } else if (data.type === 'STEALTH_DATA' && data.items) {
+        data.items.forEach((item: any) => {
+          newContext += `[Vue Écran] URL: ${item.link} | Texte: ${item.text}\n`;
+        });
       }
-    } catch (e) {
-      console.log('[Browse] Failed to parse WebView message:', e);
-    }
+
+      if (newContext) {
+        extractedContentRef.current += newContext;
+        // Protection mémoire : on garde les 25000 derniers caractères max
+        if (extractedContentRef.current.length > 25000) {
+          extractedContentRef.current = extractedContentRef.current.substring(extractedContentRef.current.length - 25000);
+        }
+        setExtractedContent(extractedContentRef.current);
+      }
+    } catch (e) {}
   }, []);
-
-  const fetchWebContent = useCallback(async () => {
-    if (Platform.OS === 'web' && url) {
-      console.log('[Browse] === Web platform: fetching page content via proxy ===');
-      console.log('[Browse] URL:', url);
-      try {
-        const content = await fetchPageContentWeb(url);
-        if (content && content.length > 50) {
-          extractedContentRef.current = content;
-          setExtractedContent(content);
-          console.log(`[Browse] ✅ Web content fetched: ${content.length} chars`);
-          console.log(`[Browse] Content preview: ${content.substring(0, 200)}`);
-        } else {
-          console.log('[Browse] ⚠️ Web content fetch returned insufficient data:', content?.length ?? 0, 'chars');
-        }
-      } catch (e: any) {
-        console.log('[Browse] ❌ Web content fetch error:', e?.message ?? e);
-      }
-    }
-  }, [url]);
 
   const handleStartScan = useCallback(() => {
     if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
@@ -558,102 +357,48 @@ export default function BrowseScreen() {
       return;
     }
 
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    }
-    console.log(`[Browse] Starting VIDEO scan on ${name}`);
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    
     setScanning(true);
     setScanTime(0);
     scanTimeRef.current = 0;
     setExtractedContent('');
-    extractedContentRef.current = '';
+    extractedContentRef.current = `Contexte de Navigation : URL de base = ${url}\n\n`;
     screenshotsRef.current = [];
     setScreenshotCount(0);
-    setContentExtracted(false);
     setCurrentTipIndex(0);
     startScan();
 
-    if (Platform.OS === 'web') {
-      console.log('[Browse] Web: starting content fetch loop');
-      fetchWebContent();
-      const webFetchInterval = setInterval(() => {
-        console.log('[Browse] Web: refetching content...');
-        fetchWebContent();
-      }, 8000);
-      setTimeout(() => clearInterval(webFetchInterval), 35000);
-    } else {
-      extractPageContent();
-      setTimeout(() => extractPageContent(), 1500);
+    if (Platform.OS !== 'web' && webViewRef.current) {
+      try { webViewRef.current.injectJavaScript(STEALTH_EXTRACT_JS); } catch (e) {}
     }
-  }, [startScan, name, settings.geminiApiKey, extractPageContent, router, fetchWebContent]);
+  }, [startScan, name, settings.geminiApiKey, router, url]);
 
   const doStopScan = useCallback(async () => {
-    console.log('[Browse] === doStopScan called ===');
-    
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      setTimeout(() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      }, 100);
       captureScreenshot();
-      extractPageContent();
-      console.log('[Browse] Final capture triggered before stop');
-    } else {
-      console.log('[Browse] Web: doing final content fetch before stop...');
-      await fetchWebContent();
-    }
+    } 
 
     setTimeout(() => {
       const merchantName = name ?? 'Shopping';
       let content = extractedContentRef.current;
       const screenshots = [...screenshotsRef.current];
 
-      console.log('[Browse] ============ SCAN STOP SUMMARY ============');
-      console.log(`[Browse] Merchant: ${merchantName}`);
-      console.log(`[Browse] Platform: ${Platform.OS}`);
-      console.log(`[Browse] Scan duration: ${scanTimeRef.current}s`);
-      console.log(`[Browse] Screenshots captured: ${screenshots.length}`);
-      console.log(`[Browse] Text content length: ${content.length} chars`);
-      if (screenshots.length > 0) {
-        console.log(`[Browse] Total screenshot data: ${Math.round(screenshots.reduce((s, f) => s + f.length, 0) / 1024)}KB`);
-      }
-      if (content.length > 0) {
-        console.log(`[Browse] Content preview: ${content.substring(0, 300)}`);
+      if (content.length < 50 && screenshots.length === 0) {
+        content = `URL analysée: ${url ?? 'inconnue'}\nMarchand: ${merchantName}\n\nATTENTION: Sécurité renforcée. Analyse basée uniquement sur l'URL.`;
       }
 
-      if (content.length === 0 && screenshots.length === 0) {
-        console.warn('[Browse] ⚠️ WARNING: No content and no screenshots captured!');
-        console.log('[Browse] Building fallback context from URL and merchant info...');
-        content = `URL analysée: ${url ?? 'inconnue'}\nMarchand: ${merchantName}\nPlateforme: ${source ?? 'inconnue'}\n\nATTENTION: Le contenu de la page n'a pas pu être extrait (restrictions cross-origin). L'analyse est basée uniquement sur l'URL fournie. Si tu ne peux pas analyser le contenu réel, retourne {"pepites": []}.`;
-        extractedContentRef.current = content;
-        console.log('[Browse] Fallback content created:', content.length, 'chars');
-      }
-
-      console.log('[Browse] ============ SENDING TO GEMINI ============');
-      console.log(`[Browse] Mode: ${screenshots.length > 0 ? 'VIDEO (' + screenshots.length + ' frames)' : 'TEXT-ONLY'}`);
-      
       setScanning(false);
       setShowResults(true);
       overlayFade.setValue(0);
       stopScan(merchantName, content, screenshots);
     }, 800);
-  }, [stopScan, name, url, source, extractPageContent, fetchWebContent]);
+  }, [stopScan, name, url, source]);
 
-  const handleStopScan = useCallback(() => {
-    doStopScan();
-  }, [doStopScan]);
-
-  const handleViewResults = useCallback(() => {
-    router.replace('/');
-  }, [router]);
-
-  const handleBack = useCallback(() => {
-    if (scanning) {
-      handleStopScan();
-    } else {
-      router.back();
-    }
-  }, [scanning, router, handleStopScan]);
+  const handleStopScan = useCallback(() => doStopScan(), [doStopScan]);
+  const handleViewResults = useCallback(() => router.replace('/'), [router]);
+  const handleBack = useCallback(() => scanning ? handleStopScan() : router.back(), [scanning, router, handleStopScan]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -661,11 +406,7 @@ export default function BrowseScreen() {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const scanBarHeight = scanBarAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 52],
-  });
-
+  const scanBarHeight = scanBarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 52] });
   const progressPercent = Math.min((scanTime / SCAN_DURATION_LIMIT) * 100, 100);
   const totalProfit = lastScanResults.reduce((sum, p) => sum + p.profit, 0);
 
@@ -674,39 +415,23 @@ export default function BrowseScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       <View style={[styles.topBar, { paddingTop: insets.top + 4 }]}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={handleBack}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
+        <TouchableOpacity style={styles.backBtn} onPress={handleBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <ArrowLeft size={20} color={Colors.text} />
         </TouchableOpacity>
 
         <View style={styles.urlBar}>
           <Shield size={12} color={Colors.success} />
-          <Text style={styles.urlText} numberOfLines={1}>
-            {name ?? 'Navigation'}
-          </Text>
+          <Text style={styles.urlText} numberOfLines={1}>{name ?? 'Navigation'}</Text>
         </View>
 
         {!scanning ? (
-          <TouchableOpacity
-            style={styles.scanStartBtn}
-            onPress={handleStartScan}
-            activeOpacity={0.8}
-            testID="start-scan-btn"
-          >
+          <TouchableOpacity style={styles.scanStartBtn} onPress={handleStartScan} activeOpacity={0.8}>
             <Video size={16} color="#000" />
             <Text style={styles.scanStartText}>SCAN</Text>
           </TouchableOpacity>
         ) : (
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <TouchableOpacity
-              style={styles.scanStopBtn}
-              onPress={handleStopScan}
-              activeOpacity={0.8}
-              testID="stop-scan-btn"
-            >
+            <TouchableOpacity style={styles.scanStopBtn} onPress={handleStopScan} activeOpacity={0.8}>
               <Square size={14} color="#fff" />
               <Text style={styles.scanStopText}>STOP</Text>
             </TouchableOpacity>
@@ -719,9 +444,7 @@ export default function BrowseScreen() {
           <View style={styles.scanIndicatorContent}>
             <View style={styles.scanIndicatorLeft}>
               <Animated.View style={[styles.recDotSmall, { opacity: dotOpacity }]} />
-              <Text style={styles.scanIndicatorText}>
-                REC · {formatTime(scanTime)}
-              </Text>
+              <Text style={styles.scanIndicatorText}>REC · {formatTime(scanTime)}</Text>
             </View>
             <View style={styles.scanMeta}>
               <Animated.Text style={[styles.tipText, { opacity: tipFadeAnim }]} numberOfLines={1}>
@@ -742,17 +465,18 @@ export default function BrowseScreen() {
             ref={webViewRef}
             source={{ uri: url ?? 'https://www.leboncoin.fr' }}
             style={styles.webview}
-            onLoadEnd={() => {
-              console.log('[Browse] Page loaded');
-              setPageLoaded(true);
-              setTimeout(() => extractPageContent(), 1000);
-            }}
+            userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1"
+            applicationNameForUserAgent="Safari/604.1"
+            injectedJavaScriptBeforeContentLoaded={EVASION_AND_SNIFFER_JS}
+            onLoadEnd={() => setPageLoaded(true)}
             onMessage={handleWebViewMessage}
             startInLoadingState
+            sharedCookiesEnabled={true}
+            thirdPartyCookiesEnabled={true}
             renderLoading={() => (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={Colors.gold} />
-                <Text style={styles.loadingText}>Chargement de {name}...</Text>
+                <Text style={styles.loadingText}>Connexion furtive à {name}...</Text>
               </View>
             )}
             javaScriptEnabled
@@ -765,18 +489,12 @@ export default function BrowseScreen() {
             {Platform.OS === 'web' ? (
               <iframe
                 src={url ?? 'https://www.leboncoin.fr'}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  border: 'none',
-                  backgroundColor: '#fff',
-                } as any}
+                style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#fff' } as any}
                 onLoad={() => setPageLoaded(true)}
               />
             ) : (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={Colors.gold} />
-                <Text style={styles.loadingText}>Chargement...</Text>
               </View>
             )}
           </View>
@@ -850,8 +568,6 @@ export default function BrowseScreen() {
                     );
                   })}
                 </View>
-
-
               </View>
             ) : scanError ? (
               <View style={styles.resultContent}>
@@ -860,10 +576,7 @@ export default function BrowseScreen() {
                 <Text style={styles.resultSubtext}>{scanError}</Text>
                 <TouchableOpacity
                   style={styles.resultActionBtn}
-                  onPress={() => {
-                    setShowResults(false);
-                    overlayFade.setValue(0);
-                  }}
+                  onPress={() => { setShowResults(false); overlayFade.setValue(0); }}
                 >
                   <Text style={styles.resultActionText}>Fermer</Text>
                 </TouchableOpacity>
@@ -873,14 +586,11 @@ export default function BrowseScreen() {
                 <Text style={styles.resultEmoji}>🔍</Text>
                 <Text style={styles.resultTitle}>Aucune pépite</Text>
                 <Text style={styles.resultSubtext}>
-                  Aucune bonne affaire détectée cette fois. Essayez de naviguer vers plus d'annonces.
+                  Aucune bonne affaire détectée. Scrollez davantage pour alimenter l'IA.
                 </Text>
                 <TouchableOpacity
                   style={styles.resultActionBtn}
-                  onPress={() => {
-                    setShowResults(false);
-                    overlayFade.setValue(0);
-                  }}
+                  onPress={() => { setShowResults(false); overlayFade.setValue(0); }}
                 >
                   <Text style={styles.resultActionText}>Continuer</Text>
                 </TouchableOpacity>
@@ -909,22 +619,12 @@ export default function BrowseScreen() {
                   )}
                 </View>
 
-                <TouchableOpacity
-                  style={styles.resultActionBtn}
-                  onPress={handleViewResults}
-                  testID="view-results-btn"
-                >
+                <TouchableOpacity style={styles.resultActionBtn} onPress={handleViewResults}>
                   <Zap size={16} color="#000" />
                   <Text style={styles.resultActionText}>Voir les résultats</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.continueBtn}
-                  onPress={() => {
-                    setShowResults(false);
-                    overlayFade.setValue(0);
-                  }}
-                >
+                <TouchableOpacity style={styles.continueBtn} onPress={() => { setShowResults(false); overlayFade.setValue(0); }}>
                   <Text style={styles.continueBtnText}>Continuer à naviguer</Text>
                 </TouchableOpacity>
               </View>
@@ -937,390 +637,68 @@ export default function BrowseScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingBottom: 10,
-    backgroundColor: '#0A0A0A',
-    gap: 10,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.divider,
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.surfaceLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  urlBar: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    gap: 6,
-  },
-  urlText: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    fontWeight: '500' as const,
-    flex: 1,
-  },
-  scanStartBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.gold,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 10,
-    gap: 5,
-  },
-  scanStartText: {
-    color: '#000',
-    fontSize: 13,
-    fontWeight: '800' as const,
-    letterSpacing: 0.5,
-  },
-  scanStopBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.recording,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 10,
-    gap: 5,
-  },
-  scanStopText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '800' as const,
-    letterSpacing: 0.5,
-  },
-  scanIndicatorBar: {
-    backgroundColor: 'rgba(255, 59, 48, 0.12)',
-    overflow: 'hidden',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 59, 48, 0.25)',
-  },
-  scanIndicatorContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  scanIndicatorLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  recDotSmall: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.recording,
-  },
-  scanIndicatorText: {
-    color: Colors.recording,
-    fontSize: 13,
-    fontWeight: '700' as const,
-  },
-  scanMeta: {
-    flex: 1,
-    gap: 6,
-    alignItems: 'flex-end',
-  },
-  tipText: {
-    color: Colors.gold,
-    fontSize: 11,
-    fontWeight: '600' as const,
-    textAlign: 'right',
-  },
-  progressMini: {
-    width: '100%',
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressMiniFill: {
-    height: '100%',
-    backgroundColor: Colors.gold,
-    borderRadius: 2,
-  },
-  webviewContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  webview: {
-    flex: 1,
-  },
-  webviewInner: {
-    flex: 1,
-  },
-  webFallback: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  loadingContainer: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: Colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  loadingText: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-  },
-  scanOverlayEdge: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  scanEdgeTop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: Colors.recording,
-    opacity: 0.7,
-  },
-  scanEdgeBottom: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: Colors.recording,
-    opacity: 0.7,
-  },
-  scanEdgeLeft: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: 3,
-    backgroundColor: Colors.recording,
-    opacity: 0.7,
-  },
-  scanEdgeRight: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    width: 3,
-    backgroundColor: Colors.recording,
-    opacity: 0.7,
-  },
-  recBadgeOverlay: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-  },
-  recBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 59, 48, 0.9)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    gap: 5,
-  },
-  recBadgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#fff',
-  },
-  recBadgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '800' as const,
-    letterSpacing: 1,
-  },
-  resultsOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  resultsCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: Colors.card,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-    overflow: 'hidden',
-  },
-  analyzingContainer: {
-    padding: 28,
-    alignItems: 'center',
-    gap: 8,
-  },
-  analyzingEmoji: {
-    fontSize: 40,
-    marginBottom: 4,
-  },
-  analyzingText: {
-    color: Colors.text,
-    fontSize: 20,
-    fontWeight: '800' as const,
-    marginBottom: 12,
-  },
-  analyzingSubtext: {
-    color: Colors.textMuted,
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 12,
-  },
-  analysisProgressBar: {
-    width: '100%',
-    height: 5,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
-  analysisProgressFill: {
-    height: '100%',
-    backgroundColor: Colors.gold,
-    borderRadius: 3,
-  },
-  analysisSteps: {
-    alignSelf: 'stretch',
-    gap: 14,
-  },
-  analysisStepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  stepDot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepDotDone: {
-    backgroundColor: 'rgba(0, 200, 83, 0.15)',
-  },
-  stepDotActive: {
-    backgroundColor: 'rgba(255, 215, 0, 0.15)',
-  },
-  stepDotEmpty: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.textMuted,
-    opacity: 0.4,
-  },
-  stepLabel: {
-    color: Colors.textMuted,
-    fontSize: 13,
-    fontWeight: '500' as const,
-  },
-  stepLabelDone: {
-    color: Colors.success,
-  },
-  stepLabelActive: {
-    color: Colors.gold,
-    fontWeight: '600' as const,
-  },
-  resultContent: {
-    padding: 28,
-    alignItems: 'center',
-  },
-  resultEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  resultTitle: {
-    color: Colors.text,
-    fontSize: 22,
-    fontWeight: '800' as const,
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  resultProfit: {
-    color: Colors.gold,
-    fontSize: 16,
-    fontWeight: '700' as const,
-    marginBottom: 20,
-  },
-  resultSubtext: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 20,
-  },
-  resultsList: {
-    alignSelf: 'stretch',
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-    gap: 10,
-  },
-  resultRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  resultRowTitle: {
-    color: Colors.text,
-    fontSize: 13,
-    fontWeight: '500' as const,
-    flex: 1,
-    marginRight: 10,
-  },
-  resultRowProfit: {
-    color: Colors.gold,
-    fontSize: 15,
-    fontWeight: '800' as const,
-  },
-  moreText: {
-    color: Colors.textMuted,
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  resultActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.gold,
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 12,
-    gap: 8,
-    alignSelf: 'stretch',
-  },
-  resultActionText: {
-    color: '#000',
-    fontSize: 15,
-    fontWeight: '700' as const,
-  },
-  continueBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
-  },
-  continueBtnText: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '600' as const,
-  },
+  screen: { flex: 1, backgroundColor: Colors.background },
+  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingBottom: 10, backgroundColor: '#0A0A0A', gap: 10, borderBottomWidth: 0.5, borderBottomColor: Colors.divider },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.surfaceLight, alignItems: 'center', justifyContent: 'center' },
+  urlBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surfaceLight, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, gap: 6 },
+  urlText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '500', flex: 1 },
+  scanStartBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.gold, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, gap: 5 },
+  scanStartText: { color: '#000', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  scanStopBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.recording, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, gap: 5 },
+  scanStopText: { color: '#fff', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  scanIndicatorBar: { backgroundColor: 'rgba(255, 59, 48, 0.12)', overflow: 'hidden', borderBottomWidth: 1, borderBottomColor: 'rgba(255, 59, 48, 0.25)' },
+  scanIndicatorContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, gap: 12 },
+  scanIndicatorLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  recDotSmall: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.recording },
+  scanIndicatorText: { color: Colors.recording, fontSize: 13, fontWeight: '700' },
+  scanMeta: { flex: 1, gap: 6, alignItems: 'flex-end' },
+  tipText: { color: Colors.gold, fontSize: 11, fontWeight: '600', textAlign: 'right' },
+  progressMini: { width: '100%', height: 3, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' },
+  progressMiniFill: { height: '100%', backgroundColor: Colors.gold, borderRadius: 2 },
+  webviewContainer: { flex: 1, position: 'relative' },
+  webview: { flex: 1 },
+  webviewInner: { flex: 1 },
+  webFallback: { flex: 1, backgroundColor: '#fff' },
+  loadingContainer: { ...StyleSheet.absoluteFillObject, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  loadingText: { color: Colors.textSecondary, fontSize: 14 },
+  scanOverlayEdge: { ...StyleSheet.absoluteFillObject },
+  scanEdgeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 3, backgroundColor: Colors.recording, opacity: 0.7 },
+  scanEdgeBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, backgroundColor: Colors.recording, opacity: 0.7 },
+  scanEdgeLeft: { position: 'absolute', top: 0, left: 0, bottom: 0, width: 3, backgroundColor: Colors.recording, opacity: 0.7 },
+  scanEdgeRight: { position: 'absolute', top: 0, right: 0, bottom: 0, width: 3, backgroundColor: Colors.recording, opacity: 0.7 },
+  recBadgeOverlay: { position: 'absolute', top: 12, right: 12 },
+  recBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 59, 48, 0.9)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, gap: 5 },
+  recBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' },
+  recBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  resultsOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+  resultsCard: { width: '100%', maxWidth: 380, backgroundColor: Colors.card, borderRadius: 20, borderWidth: 1, borderColor: Colors.cardBorder, overflow: 'hidden' },
+  analyzingContainer: { padding: 28, alignItems: 'center', gap: 8 },
+  analyzingEmoji: { fontSize: 40, marginBottom: 4 },
+  analyzingText: { color: Colors.text, fontSize: 20, fontWeight: '800', marginBottom: 12 },
+  analyzingSubtext: { color: Colors.textMuted, fontSize: 12, textAlign: 'center', marginTop: 12 },
+  analysisProgressBar: { width: '100%', height: 5, backgroundColor: Colors.surfaceLight, borderRadius: 3, overflow: 'hidden', marginBottom: 20 },
+  analysisProgressFill: { height: '100%', backgroundColor: Colors.gold, borderRadius: 3 },
+  analysisSteps: { alignSelf: 'stretch', gap: 14 },
+  analysisStepRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  stepDot: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  stepDotDone: { backgroundColor: 'rgba(0, 200, 83, 0.15)' },
+  stepDotActive: { backgroundColor: 'rgba(255, 215, 0, 0.15)' },
+  stepDotEmpty: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.textMuted, opacity: 0.4 },
+  stepLabel: { color: Colors.textMuted, fontSize: 13, fontWeight: '500' },
+  stepLabelDone: { color: Colors.success },
+  stepLabelActive: { color: Colors.gold, fontWeight: '600' },
+  resultContent: { padding: 28, alignItems: 'center' },
+  resultEmoji: { fontSize: 48, marginBottom: 12 },
+  resultTitle: { color: Colors.text, fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
+  resultProfit: { color: Colors.gold, fontSize: 16, fontWeight: '700', marginBottom: 20 },
+  resultSubtext: { color: Colors.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: 20, lineHeight: 20 },
+  resultsList: { alignSelf: 'stretch', backgroundColor: Colors.surfaceLight, borderRadius: 12, padding: 14, marginBottom: 20, gap: 10 },
+  resultRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  resultRowTitle: { color: Colors.text, fontSize: 13, fontWeight: '500', flex: 1, marginRight: 10 },
+  resultRowProfit: { color: Colors.gold, fontSize: 15, fontWeight: '800' },
+  moreText: { color: Colors.textMuted, fontSize: 12, textAlign: 'center', marginTop: 2 },
+  resultActionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.gold, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 12, gap: 8, alignSelf: 'stretch' },
+  resultActionText: { color: '#000', fontSize: 15, fontWeight: '700' },
+  continueBtn: { marginTop: 12, paddingVertical: 12 },
+  continueBtnText: { color: Colors.textSecondary, fontSize: 14, fontWeight: '600' },
 });
