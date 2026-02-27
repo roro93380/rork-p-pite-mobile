@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import createContextHook from '@nkzw/create-context-hook';
 import { Pepite, AppSettings, ScanSession } from '@/types';
 import { MOCK_PEPITES } from '@/mocks/pepites';
-import { analyzeWithGemini, analyzeWithGeminiVideo, generateFallbackPepites } from '@/services/scanService';
+import { analyzeWithGemini, analyzeWithGeminiVideo, analyzeWithMapping, generateFallbackPepites, ExtractedAd } from '@/services/scanService';
 import { setupNotifications, sendPepiteFoundNotification } from '@/services/notificationService';
 
 const STORAGE_KEYS = {
@@ -148,30 +148,35 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   }, []);
 
   const scanMutation = useMutation({
-    mutationFn: async ({ merchantName, pageContent, screenshots }: { merchantName: string; pageContent: string; screenshots?: string[] }) => {
+    mutationFn: async ({ merchantName, pageContent, screenshots, extractedAds }: { merchantName: string; pageContent: string; screenshots?: string[]; extractedAds?: ExtractedAd[] }) => {
       console.log('[PepiteProvider] ============ SCAN MUTATION START ============');
       console.log(`[PepiteProvider] Merchant: ${merchantName}`);
       console.log(`[PepiteProvider] API key present: ${settings.geminiApiKey.length > 0} (${settings.geminiApiKey.length} chars)`);
       console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
+      console.log(`[PepiteProvider] Extracted ads: ${extractedAds?.length ?? 0}`);
       console.log(`[PepiteProvider] Text content: ${pageContent.length} chars`);
-      if (pageContent.length > 0) {
-        console.log(`[PepiteProvider] Text preview: ${pageContent.substring(0, 200)}`);
-      } else {
-        console.warn('[PepiteProvider] ⚠️ EMPTY page content!');
-      }
 
       if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
         throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
       }
 
+      const ads = extractedAds ?? [];
+
       if (screenshots && screenshots.length > 0) {
-        console.log(`[PepiteProvider] → VIDEO mode with ${screenshots.length} frames`);
-        const results = await analyzeWithGeminiVideo(settings.geminiApiKey, merchantName, screenshots, pageContent);
-        console.log(`[PepiteProvider] ✅ VIDEO analysis returned ${results.length} pepites`);
+        console.log(`[PepiteProvider] → VIDEO+MAPPING mode (${screenshots.length} frames, ${ads.length} ads)`);
+        const results = await analyzeWithGeminiVideo(settings.geminiApiKey, merchantName, screenshots, pageContent, ads);
+        console.log(`[PepiteProvider] ✅ Analysis returned ${results.length} pepites`);
         return results;
       }
 
-      console.log('[PepiteProvider] → TEXT-ONLY mode (no screenshots)');
+      if (ads.length > 0) {
+        console.log(`[PepiteProvider] → MAPPING-ONLY mode (${ads.length} ads)`);
+        const results = await analyzeWithMapping(settings.geminiApiKey, merchantName, ads);
+        console.log(`[PepiteProvider] ✅ Mapping returned ${results.length} pepites`);
+        return results;
+      }
+
+      console.log('[PepiteProvider] → TEXT-ONLY fallback');
       const results = await analyzeWithGemini(settings.geminiApiKey, merchantName, pageContent);
       console.log(`[PepiteProvider] ✅ TEXT analysis returned ${results.length} pepites`);
       return results;
@@ -207,15 +212,14 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     setScanError(null);
   }, []);
 
-  const stopScan = useCallback((merchantName: string, pageContent: string, screenshots?: string[]) => {
+  const stopScan = useCallback((merchantName: string, pageContent: string, screenshots?: string[], extractedAds?: ExtractedAd[]) => {
     setIsScanning(false);
     setScanTimer(0);
     console.log('[PepiteProvider] ============ STOP SCAN → LAUNCHING ANALYSIS ============');
     console.log(`[PepiteProvider] Merchant: ${merchantName}`);
-    console.log(`[PepiteProvider] Content: ${pageContent.length} chars`);
     console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
-    console.log(`[PepiteProvider] Mode: ${screenshots && screenshots.length > 0 ? 'VIDEO (' + screenshots.length + ' frames)' : 'TEXT-ONLY'}`);
-    scanMutation.mutate({ merchantName, pageContent, screenshots });
+    console.log(`[PepiteProvider] Extracted ads: ${extractedAds?.length ?? 0}`);
+    scanMutation.mutate({ merchantName, pageContent, screenshots, extractedAds });
   }, [scanMutation]);
 
   const activePepites = useMemo(
