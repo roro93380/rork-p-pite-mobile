@@ -385,7 +385,7 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[], isVideo: boole
       temperature: 0.2,
       topK: 40,
       topP: 0.95,
-      maxOutputTokens: 65 536,
+      maxOutputTokens: 65536,
       responseMimeType: 'application/json',
     },
   };
