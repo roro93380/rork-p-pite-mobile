@@ -451,9 +451,7 @@ export default function ScanScreen() {
             })}
           </View>
 
-          <Text style={styles.scanDurationNote}>
-            Scan de {formatTimer(timer)} sur {selectedMerchant}
-          </Text>
+
         </View>
       )}
 

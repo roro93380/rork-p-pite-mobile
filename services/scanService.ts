@@ -231,7 +231,15 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
 
   const now = new Date();
   const pepites: Pepite[] = parsed.pepites.map((p, index) => {
-    const imageUrl = p.adImageUrl && p.adImageUrl.length > 0
+    const isValidUrl = (url: string) => {
+      try {
+        return url.startsWith('http://') || url.startsWith('https://');
+      } catch {
+        return false;
+      }
+    };
+
+    const imageUrl = p.adImageUrl && p.adImageUrl.length > 10 && isValidUrl(p.adImageUrl)
       ? p.adImageUrl
       : getImageForQuery(p.imageKeyword ?? 'default');
 
@@ -243,7 +251,7 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
       estimatedValue: p.estimatedValue ?? 0,
       profit: p.profit ?? ((p.estimatedValue ?? 0) - (p.sellerPrice ?? 0)),
       source: p.source ?? merchantName,
-      sourceUrl: p.adUrl ?? p.sourceUrl ?? '',
+      sourceUrl: (p.adUrl && p.adUrl.startsWith('http') ? p.adUrl : '') || (p.sourceUrl && p.sourceUrl.startsWith('http') ? p.sourceUrl : ''),
       category: p.category ?? 'Divers',
       description: p.description ?? 'Bonne affaire détectée par l\'IA',
       scanDate: new Date(now.getTime() - index * 60000).toISOString(),

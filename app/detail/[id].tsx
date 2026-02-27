@@ -8,6 +8,7 @@ import {
   Linking,
   Platform,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -53,7 +54,14 @@ export default function DetailScreen() {
 
   const handleOpenLink = useCallback(() => {
     if (!pepite) return;
-    Linking.openURL(pepite.sourceUrl);
+    const url = pepite.sourceUrl;
+    if (!url || !url.startsWith('http')) {
+      Alert.alert('Lien indisponible', 'L\'URL de cette annonce n\'a pas pu être récupérée par l\'IA.');
+      return;
+    }
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Erreur', 'Impossible d\'ouvrir ce lien.');
+    });
   }, [pepite]);
 
   if (!pepite) {
