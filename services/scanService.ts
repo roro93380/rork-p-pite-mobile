@@ -37,14 +37,6 @@ function getImageForQuery(query: string): string {
   return UNSPLASH_IMAGES[randomKey] ?? UNSPLASH_IMAGES.default;
 }
 
-// Utilitaire de nettoyage du base64
-function cleanBase64String(rawBase64: string): string {
-  if (rawBase64.includes(',')) {
-    return rawBase64.split(',')[1];
-  }
-  return rawBase64;
-}
-
 interface GeminiPepite {
   title: string;
   sellerPrice: number;
@@ -84,18 +76,17 @@ interface GeminiPart {
 function buildVideoPrompt(merchantName: string, pageContent: string): string {
   return `Tu es un EXPERT en achat-revente et flipping depuis 15 ans. Tu connais parfaitement les cotes du marché de l'occasion en France.
 
-Tu reçois une suite d'images extraites d'une vidéo d'enregistrement d'écran d'un utilisateur naviguant sur "${merchantName}".
-Analyse chaque image comme une frame d'une timeline continue. Si tu vois un objet sur une frame et son prix sur la suivante, fais le lien.
+Tu reçois une vidéo d'enregistrement d'écran d'un utilisateur qui navigue sur "${merchantName}". C'est un enregistrement réel de son téléphone.
 ${pageContent ? `\nDonnées textuelles extraites en complément :\n---\n${pageContent.substring(0, 6000)}\n---` : ''}
 
 MISSION :
-Identifie TOUTES les annonces visibles : titres, prix, photos, descriptions.
+Regarde attentivement cette vidéo. Identifie TOUTES les annonces visibles : titres, prix, photos, descriptions.
 Trouve les VRAIES bonnes affaires RÉELLEMENT VISIBLES.
 
-RÈGLE ABSOLUE : Ne JAMAIS inventer d'annonces. UNIQUEMENT celles visibles dans les images. Si aucune annonce réelle avec titre et prix, retourne : {"pepites": []}.
+RÈGLE ABSOLUE : Ne JAMAIS inventer d'annonces. UNIQUEMENT celles visibles dans la vidéo. Si aucune annonce réelle avec titre et prix, retourne : {"pepites": []}.
 
 CRITÈRES :
-1. L'annonce DOIT être visible (titre ET prix)
+1. L'annonce DOIT être visible dans la vidéo (titre ET prix)
 2. Prix au minimum 8% sous la valeur marché de revente
 3. Produit revendable
 4. Tout profit compte, même 5-10€
@@ -211,6 +202,7 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
 
   console.log('[ScanService] ========== GEMINI RAW RESPONSE ==========');
   console.log('[ScanService] Response length:', textContent.length, 'chars');
+  console.log('[ScanService] Raw text:', textContent.substring(0, 800));
 
   let parsed: { pepites: GeminiPepite[] };
   try {
@@ -222,6 +214,7 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
       parsed = repairTruncatedJson(textContent);
     } catch (repairError) {
       console.error('[ScanService] Failed to repair JSON:', repairError);
+      console.error('[ScanService] Raw text was:', textContent.substring(0, 1000));
       throw new Error('Erreur de parsing de la réponse IA. Réessayez.');
     }
   }
@@ -269,7 +262,7 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<GeminiResponse> {
+async function callGeminiApi(apiKey: string, parts: GeminiPart[], isVideo: boolean = false): Promise<GeminiResponse> {
   const requestBody = {
     contents: [
       {
@@ -311,28 +304,50 @@ async function callGeminiApi(apiKey: string, parts: GeminiPart[]): Promise<Gemin
 
     if (response.status === 429 || response.status === 503) {
       if (attempt < MAX_RETRIES) {
-        console.log(`[ScanService] Rate limited or overloaded, will retry...`);
+        console.log(`[ScanService] Rate limited, will retry...`);
         continue;
       }
       throw new Error('Quota API dépassé. Vérifiez votre plan Gemini ou réessayez dans quelques minutes.');
     }
 
     if (response.status === 400) {
-      throw new Error('Clé API invalide ou requête malformée (Payload trop lourd ou image corrompue).');
+      throw new Error('Clé API invalide ou requête malformée. Vérifiez votre clé dans les réglages.');
     }
     if (response.status === 403) {
       throw new Error('Clé API non autorisée. Vérifiez que votre clé Gemini est active.');
-    }
-    if (response.status === 500) {
-      if (attempt < MAX_RETRIES) {
-          console.log(`[ScanService] Error 500 received, retrying...`);
-          continue;
-      }
     }
     throw new Error(`Erreur API Gemini (${response.status}). Réessayez.`);
   }
 
   throw new Error('Impossible de joindre l\'API Gemini après plusieurs tentatives.');
+}
+
+function createMjpegVideoFromFrames(frames: string[]): string {
+  const binaryFrames: Uint8Array[] = [];
+  for (const base64 of frames) {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    binaryFrames.push(bytes);
+  }
+
+  const totalSize = binaryFrames.reduce((sum, f) => sum + f.length, 0);
+  const combined = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const frame of binaryFrames) {
+    combined.set(frame, offset);
+    offset += frame.length;
+  }
+
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < combined.length; i += chunkSize) {
+    const chunk = combined.subarray(i, Math.min(i + chunkSize, combined.length));
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
 }
 
 export async function analyzeWithGeminiVideo(
@@ -346,7 +361,7 @@ export async function analyzeWithGeminiVideo(
     throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
   }
 
-  console.log('[ScanService] ========== MULTI-IMAGE ANALYSIS START ==========');
+  console.log('[ScanService] ========== VIDEO ANALYSIS START ==========');
   console.log(`[ScanService] Merchant: ${merchantName}`);
   console.log(`[ScanService] Total frames captured: ${screenshots.length}`);
   console.log(`[ScanService] Text content: ${pageContent.length} chars`);
@@ -359,7 +374,7 @@ export async function analyzeWithGeminiVideo(
     return analyzeWithGemini(apiKey, merchantName, pageContent);
   }
 
-  const maxFrames = 12;
+  const maxFrames = 6;
   let selectedFrames: string[];
   if (validFrames.length <= maxFrames) {
     selectedFrames = validFrames;
@@ -371,30 +386,47 @@ export async function analyzeWithGeminiVideo(
       selectedFrames.push(validFrames[idx]);
     }
   }
-  console.log(`[ScanService] Selected ${selectedFrames.length} key frames for analysis`);
+  console.log(`[ScanService] Selected ${selectedFrames.length} key frames for video`);
 
   const prompt = buildVideoPrompt(merchantName, pageContent);
   console.log(`[ScanService] Prompt length: ${prompt.length} chars`);
 
-  const parts: GeminiPart[] = [{ text: prompt }];
-  
-  for (const frame of selectedFrames) {
-    parts.push({
-      inlineData: {
-        mimeType: 'image/jpeg',
-        data: cleanBase64String(frame),
-      },
-    });
-  }
-
   try {
-    console.log(`[ScanService] Sending ${selectedFrames.length} images + prompt to Gemini`);
-    const data = await callGeminiApi(apiKey, parts);
-    console.log('[ScanService] Gemini multi-image analysis response received');
+    console.log('[ScanService] Creating video from frames...');
+    const videoBase64 = createMjpegVideoFromFrames(selectedFrames);
+    console.log(`[ScanService] Video size: ${Math.round(videoBase64.length / 1024)}KB`);
+
+    const parts: GeminiPart[] = [
+      { text: prompt },
+      {
+        inlineData: {
+          mimeType: 'video/mjpeg',
+          data: videoBase64,
+        },
+      },
+    ];
+
+    console.log('[ScanService] Sending 1 video + 1 prompt to Gemini (single request)');
+    const data = await callGeminiApi(apiKey, parts, true);
+    console.log('[ScanService] Gemini video analysis response received');
     return parseGeminiResponse(data, merchantName);
-  } catch (error) {
-    console.warn('[ScanService] Multi-image mode failed, falling back to text mode:', error);
-    return analyzeWithGemini(apiKey, merchantName, pageContent);
+  } catch (videoError) {
+    console.warn('[ScanService] Video mode failed, falling back to image mode:', videoError);
+
+    const parts: GeminiPart[] = [{ text: prompt }];
+    for (const frame of selectedFrames) {
+      parts.push({
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: frame,
+        },
+      });
+    }
+
+    console.log(`[ScanService] Fallback: sending ${selectedFrames.length} images + prompt`);
+    const data = await callGeminiApi(apiKey, parts);
+    console.log('[ScanService] Gemini fallback analysis response received');
+    return parseGeminiResponse(data, merchantName);
   }
 }
 
@@ -411,7 +443,6 @@ export async function analyzeWithGemini(
   console.log('[ScanService] ========== TEXT-ONLY ANALYSIS START ==========');
   console.log(`[ScanService] Merchant: ${merchantName}`);
   console.log(`[ScanService] Page content: ${pageContent.length} chars`);
-  
   if (pageContent.length > 0) {
     console.log(`[ScanService] Content preview: ${pageContent.substring(0, 500)}`);
   } else {
