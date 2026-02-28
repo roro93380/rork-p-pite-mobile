@@ -26,11 +26,14 @@ const CAPTURE_INTERVAL_MS = 2500;
 const SCAN_DURATION_LIMIT = 30;
 
 const SCAN_TIPS = [
-  'Scrollez lentement pour de meilleurs résultats',
-  'Passez bien sur chaque annonce',
-  'Restez sur les pages avec des prix visibles',
-  'Prenez votre temps, l\'IA capture tout',
-  'Concentrez-vous sur les bonnes catégories',
+  '☕ Prenez un café, Pépite s\'en charge',
+  '🎯 Pépite analyse chaque annonce pour vous',
+  '⏸️ Restez juste dans la page... Pépite fait le boulot!',
+  '😎 Détendez-vous, laissez l\'app scanner',
+  '🔍 Tous les articles sont capturés automatiquement',
+  '✨ Pépite cherche les meilleures pépites',
+  '🚀 Ne touchez rien, nous scrollons via l\'IA',
+  '💰 Les marges sont calculées en temps réel',
 ];
 
 const ANALYSIS_STEPS = [

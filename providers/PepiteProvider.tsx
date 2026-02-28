@@ -148,12 +148,13 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   }, []);
 
   const scanMutation = useMutation({
-    mutationFn: async ({ merchantName, pageContent, screenshots }: { merchantName: string; pageContent: string; screenshots?: string[] }) => {
+    mutationFn: async ({ merchantName, pageContent, screenshots, extractedItems }: { merchantName: string; pageContent: string; screenshots?: string[]; extractedItems?: Array<{title: string; link: string; image: string; price: string}> }) => {
       console.log('[PepiteProvider] ============ SCAN MUTATION START ============');
       console.log(`[PepiteProvider] Merchant: ${merchantName}`);
       console.log(`[PepiteProvider] API key present: ${settings.geminiApiKey.length > 0} (${settings.geminiApiKey.length} chars)`);
       console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
       console.log(`[PepiteProvider] Text content: ${pageContent.length} chars`);
+      console.log(`[PepiteProvider] Extracted items: ${extractedItems?.length ?? 0}`);
       if (pageContent.length > 0) {
         console.log(`[PepiteProvider] Text preview: ${pageContent.substring(0, 200)}`);
       } else {
@@ -164,16 +165,62 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
       }
 
+      let results: any[] = [];
       if (screenshots && screenshots.length > 0) {
         console.log(`[PepiteProvider] → VIDEO mode with ${screenshots.length} frames`);
-        const results = await analyzeWithGeminiVideo(settings.geminiApiKey, merchantName, screenshots, pageContent);
+        results = await analyzeWithGeminiVideo(settings.geminiApiKey, merchantName, screenshots, pageContent);
         console.log(`[PepiteProvider] ✅ VIDEO analysis returned ${results.length} pepites`);
-        return results;
+      } else {
+        console.log('[PepiteProvider] → TEXT-ONLY mode (no screenshots)');
+        results = await analyzeWithGemini(settings.geminiApiKey, merchantName, pageContent);
+        console.log(`[PepiteProvider] ✅ TEXT analysis returned ${results.length} pepites`);
       }
 
-      console.log('[PepiteProvider] → TEXT-ONLY mode (no screenshots)');
-      const results = await analyzeWithGemini(settings.geminiApiKey, merchantName, pageContent);
-      console.log(`[PepiteProvider] ✅ TEXT analysis returned ${results.length} pepites`);
+      // Enrichir les pépites avec les URLs et images des items extrait
+      if (extractedItems && extractedItems.length > 0) {
+        console.log(`[PepiteProvider] 🔍 Starting enrichment with ${extractedItems.length} extracted items...`);
+        console.log(`[PepiteProvider] Items to match against:`, extractedItems.map(i => i.title).join(' | '));
+        
+        results = results.map((pepite) => {
+          // Fonction de matching par titre améliorée (fuzzy)
+          let matchingItem = null;
+          let bestMatchScore = 0;
+
+          for (const item of extractedItems) {
+            // Extraire les mots clés significatifs (> 3 chars)
+            const pepiteWords = pepite.title.toLowerCase().split(/[\s,\-()]+/).filter((w: string) => w.length > 3);
+            const itemWords = item.title.toLowerCase().split(/[\s,\-()]+/).filter((w: string) => w.length > 3);
+            
+            // Compter les mots en commun
+            const commonWords = pepiteWords.filter((w: string) => itemWords.some(iw => iw.includes(w) || w.includes(iw)));
+            const matchScore = commonWords.length;
+            
+            // Match si au moins 2 mots clés en commun, ou si les premiers 25 chars correspondent
+            const firstCharsMatch = pepite.title.toLowerCase().substring(0, 25) === item.title.toLowerCase().substring(0, 25);
+            const isGoodMatch = matchScore >= 2 || firstCharsMatch;
+            
+            if (isGoodMatch && matchScore > bestMatchScore) {
+              bestMatchScore = matchScore;
+              matchingItem = item;
+            }
+          }
+
+          if (matchingItem && bestMatchScore >= 2) {
+            console.log(`[PepiteProvider] 🔗 Matched "${pepite.title}" → ${matchingItem.link} (score: ${bestMatchScore})`);
+            return {
+              ...pepite,
+              adUrl: matchingItem.link,
+              adImageUrl: matchingItem.image,
+            };
+          } else {
+            console.log(`[PepiteProvider] ❌ No match for "${pepite.title}" (checked ${extractedItems.length} items, best score: ${bestMatchScore})`);
+          }
+          return pepite;
+        });
+      } else {
+        console.log('[PepiteProvider] ℹ️ No extracted items available for enrichment');
+      }
+
       return results;
     },
     onSuccess: async (results) => {
@@ -207,15 +254,14 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     setScanError(null);
   }, []);
 
-  const stopScan = useCallback((merchantName: string, pageContent: string, screenshots?: string[]) => {
+  const stopScan = useCallback((merchantName: string, pageContent: string, screenshots?: string[], extractedItems?: Array<{title: string; link: string; image: string; price: string}>) => {
     setIsScanning(false);
     setScanTimer(0);
     console.log('[PepiteProvider] ============ STOP SCAN → LAUNCHING ANALYSIS ============');
     console.log(`[PepiteProvider] Merchant: ${merchantName}`);
     console.log(`[PepiteProvider] Content: ${pageContent.length} chars`);
-    console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
-    console.log(`[PepiteProvider] Mode: ${screenshots && screenshots.length > 0 ? 'VIDEO (' + screenshots.length + ' frames)' : 'TEXT-ONLY'}`);
-    scanMutation.mutate({ merchantName, pageContent, screenshots });
+    console.log(`[PepiteProvider] Items received: ${extractedItems?.length ?? 0}`);
+    scanMutation.mutate({ merchantName, pageContent, screenshots, extractedItems });
   }, [scanMutation]);
 
   const activePepites = useMemo(

@@ -12,6 +12,8 @@ export interface Pepite {
   scanDate: string;
   isFavorite: boolean;
   isTrashed: boolean;
+  adUrl?: string;
+  adImageUrl?: string;
 }
 
 export interface ScanSession {

@@ -87,11 +87,11 @@ RÈGLE ABSOLUE : Ne JAMAIS inventer d'annonces. UNIQUEMENT celles visibles dans 
 
 CRITÈRES :
 1. L'annonce DOIT être visible dans la vidéo (titre ET prix)
-2. Prix au minimum 8% sous la valeur marché de revente
+2. Prix au minimum 10% sous la valeur marché de revente
 3. Produit revendable
 4. Tout profit compte, même 5-10€
 
-Sois TRÈS inclusif. Dès 8% de marge = pépite.
+Sois TRÈS inclusif. Dès 10% de marge = pépite.
 
 Réponds UNIQUEMENT en JSON valide, sans markdown :
 {
@@ -137,12 +137,12 @@ RÈGLE ABSOLUE : Tu ne dois JAMAIS inventer, simuler ou imaginer des annonces. T
 
 CRITÈRES DE SÉLECTION D'UNE PÉPITE :
 1. L'annonce DOIT être réellement présente dans les données extraites (titre ET prix visibles)
-2. Le prix demandé est au minimum 8% en dessous de la valeur marché de revente (même une petite marge compte !)
+2. Le prix demandé est au minimum 10% en dessous de la valeur marché de revente (même une petite marge compte !)
 3. Le produit peut se revendre (pas besoin que ce soit ultra-demandé)
 4. Tout profit est bon à prendre, même 5€ ou 10€
 5. L'état du produit semble acceptable pour la revente
 
-IMPORTANT : Sois TRÈS inclusif. Dès qu'il y a 8% de marge ou plus, c'est une pépite.
+IMPORTANT : Sois TRÈS inclusif. Dès qu'il y a 10% de marge ou plus, c'est une pépite.
 
 Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce format exact :
 {
@@ -165,7 +165,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans backticks, dans ce 
 
 IMPORTANT : Chaque objet JSON doit être COMPLET. Ne coupe JAMAIS une URL en plein milieu. Si l'URL est trop longue, conserve la quand même.
 
-Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en trouves. La moindre marge de 8% suffit. Si aucune annonce réelle n'est trouvée, retourne : {"pepites": []}.`;
+Sois GÉNÉREUX dans ta sélection : retourne entre 1 et 10 pépites si tu en trouves. La moindre marge de 10% suffit. Si aucune annonce réelle n'est trouvée, retourne : {"pepites": []}.`;
 }
 
 function tryRepairIncompleteObject(raw: string): GeminiPepite | null {
@@ -486,7 +486,7 @@ export async function analyzeWithGeminiVideo(
     return analyzeWithGemini(apiKey, merchantName, pageContent);
   }
 
-  const maxFrames = 6;
+  const maxFrames = 5; // Réduit de 6 à 5 pour moins de charge et moins de risque de détection
   let selectedFrames: string[];
   if (validFrames.length <= maxFrames) {
     selectedFrames = validFrames;

@@ -9,23 +9,27 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, Square, Zap, Shield, Video, CheckCircle } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ArrowLeft, Square, Zap, Shield, Video, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { captureRef } from 'react-native-view-shot';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePepite } from '@/providers/PepiteProvider';
 
 const SCAN_TIPS = [
-  'Scrollez lentement pour de meilleurs r\u00e9sultats',
-  'Passez bien sur chaque annonce',
-  'Restez sur les pages avec des prix visibles',
-  'Prenez votre temps, l\'IA capture tout',
-  'Concentrez-vous sur les bonnes cat\u00e9gories',
-  'Chaque scroll est analys\u00e9 par l\'IA',
-  'L\'IA d\u00e9tecte les marges d\u00e8s 8%',
+  '☕ Prenez un café, Pépite s\'en charge',
+  '🎯 Pépite analyse chaque annonce pour vous',
+  '⏸️ Restez juste dans la page... Pépite fait le boulot!',
+  '😎 Détendez-vous, laissez l\'app scanner',
+  '🔍 Tous les articles sont capturés automatiquement',
+  '✨ Pépite cherche les meilleures pépites',
+  '🚀 Ne touchez rien, nous scrollons via l\'IA',
+  '💰 Les marges sont calculées en temps réel',
 ];
 
 const ANALYSIS_STEPS = [
@@ -37,101 +41,307 @@ const ANALYSIS_STEPS = [
 ];
 
 const SCAN_DURATION_LIMIT = 30;
-const SCREENSHOT_INTERVAL = 3000;
-const MAX_SCREENSHOTS = 10;
+const MAX_SCREENSHOTS = 8;
+const MIN_SCREENSHOT_INTERVAL = 3000;
+const MAX_SCREENSHOT_INTERVAL = 7000;
+const MIN_EXTRACT_INTERVAL = 4000;
+const MAX_EXTRACT_INTERVAL = 8000;
+
+// User-Agent réaliste selon la plateforme
+const WEBVIEW_USER_AGENT =
+  Platform.OS === 'ios'
+    ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+    : 'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36';
+
+// Script de scroll aléatoire injecté pendant le scan pour imiter un comportement humain
+const SCROLL_SCRIPT = `
+(function() {
+  try {
+    window.__scrollRunning = true;
+    var scrollStep = function() {
+      if (!window.__scrollRunning) return;
+      var maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      var current = window.scrollY;
+      var target = Math.min(current + Math.floor(Math.random() * 300 + 100), maxScroll);
+      window.scrollTo({ top: target, behavior: 'smooth' });
+      setTimeout(scrollStep, Math.random() * 2000 + 1000);
+    };
+    scrollStep();
+  } catch(e) {}
+})();
+true;
+`;
+
+// Script pour arrêter le scroll
+const STOP_SCROLL_SCRIPT = `
+(function() {
+  try {
+    window.__scrollRunning = false;
+  } catch(e) {}
+})();
+true;
+`;
 
 const CONTENT_EXTRACT_JS = `
 (function() {
   try {
     var items = [];
-    var selectors = [
-      '[data-qa-id="aditem_container"]',
-      '[data-testid*="ad"]',
-      '[class*="AdCard"]',
-      '[class*="aditem"]',
-      '.oa-card',
-      'article',
-      '[class*="ItemBox"]',
-      '[class*="item-card"]',
-      '[class*="product-card"]',
-      '[class*="ProductCard"]',
-      '[class*="listing-card"]',
-      '[class*="feed-grid"] > div',
-      '[class*="catalog"] [class*="item"]',
-      '[class*="search-result"]',
-      '[class*="annonce"]',
-      '[class*="Card"][class*="item"]',
-      'a[href*="/item/"]',
-      'a[href*="/annonce/"]',
-      'a[href*="/product/"]',
-      'a[href*="/offres/"]'
-    ];
-    var cards = document.querySelectorAll(selectors.join(', '));
-    if (cards.length === 0) {
-      cards = document.querySelectorAll('[class*="card"], [class*="item"], [class*="product"]');
+    var isVinted = window.location.href.includes('vinted.fr');
+    var isEbay = window.location.href.includes('ebay.com') || window.location.href.includes('ebay.fr');
+    var isAmazon = window.location.href.includes('amazon.fr') || window.location.href.includes('amazon.com');
+    var debugInfo = '';
+    
+    if (isVinted) {
+      // === VINTED ===
+      var containers = document.querySelectorAll('[class*="new-item-box"]');
+      debugInfo = 'Vinted: ' + containers.length + ' containers';
+      
+      for (var i = 0; i < containers.length; i++) {
+        try {
+          var container = containers[i];
+          var linkEl = container.querySelector('a[href*="/items/"]');
+          var link = linkEl ? 'https://www.vinted.fr' + linkEl.getAttribute('href') : '';
+          var title = linkEl ? linkEl.getAttribute('title') : '';
+          var priceMatch = title.match(/([0-9]+[.,][0-9]{2}\\s*€)/);
+          var price = priceMatch ? priceMatch[1] : '';
+          var imageUrl = '';
+          var img = container.querySelector('img');
+          if (img) {
+            imageUrl = img.src || img.getAttribute('data-src') || '';
+          }
+          var titleOnly = title.split(',')[0].trim() || 'Item';
+          
+          if (link && titleOnly) {
+            items.push({ title: titleOnly, price: price, link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+    } else if (isEbay) {
+      // === EBAY (eBay.fr) ===
+      var cards = document.querySelectorAll('li.s-card');
+      debugInfo = 'eBay: ' + cards.length + ' cards';
+      
+      for (var i = 0; i < cards.length; i++) {
+        try {
+          var card = cards[i];
+          var title = '';
+          var price = '';
+          var link = '';
+          var imageUrl = '';
+          
+          // Récupérer le lien depuis le titre (plus fiable)
+          var titleLink = card.querySelector('a.s-card__link[href*="/itm/"]');
+          if (titleLink) {
+            var href = titleLink.getAttribute('href') || '';
+            // Nettoyer l'URL: enlever les paramètres après ?
+            link = href.split('?')[0];
+            if (!link.startsWith('http')) {
+              link = 'https://www.ebay.fr' + link;
+            }
+          }
+          
+          // Titre (depuis le span du heading)
+          var titleSpan = card.querySelector('.s-card__title span');
+          if (titleSpan) {
+            title = titleSpan.innerText.trim();
+          }
+          
+          // Prix (exact text du span)
+          var priceEl = card.querySelector('.s-card__price');
+          if (priceEl) {
+            price = priceEl.innerText.trim();
+          }
+          
+          // Image (depuis src ou data-src)
+          var img = card.querySelector('img.s-card__image');
+          if (img) {
+            imageUrl = img.src || img.getAttribute('data-src') || '';
+          }
+          
+          // Validation et ajout
+          // Filtrer les items de navigation (trop courts, pas importants)
+          var isSuspicious = title.toLowerCase().match(/^(mon ebay|panier|menu|tout|ench|achat|shop|brand|best offer|sponsored)/i);
+          if (title && title.length > 10 && link && link.includes('/itm/') && !isSuspicious && (price || imageUrl)) {
+            items.push({ 
+              title: title, 
+              price: price || 'N/A', 
+              link: link, 
+              image: imageUrl 
+            });
+          }
+        } catch(e) {}
+      }
+    } else if (isAmazon) {
+      // === AMAZON ===
+      var products = document.querySelectorAll('[data-component-type="s-search-result"]');
+      debugInfo = 'Amazon: ' + products.length + ' products';
+      
+      for (var i = 0; i < products.length; i++) {
+        try {
+          var product = products[i];
+          var title = '';
+          var price = '';
+          var link = '';
+          var imageUrl = '';
+          
+          // Titre depuis h2 span
+          var titleSpan = product.querySelector('h2 span');
+          if (titleSpan) {
+            title = titleSpan.innerText.trim();
+          }
+          
+          // Lien depuis a[aria-hidden="true"][href*="/dp/"] (image link)
+          var imageLinkEl = product.querySelector('a[aria-hidden="true"][href*="/dp/"]');
+          if (imageLinkEl) {
+            link = imageLinkEl.getAttribute('href') || '';
+          }
+          // Fallback: a.a-link-normal
+          if (!link) {
+            var titleLinkEl = product.querySelector('a.a-link-normal[href*="/dp/"]');
+            if (titleLinkEl) {
+              link = titleLinkEl.getAttribute('href') || '';
+            }
+          }
+          
+          // Nettoyer l'URL: enlever les paramètres après /ref=
+          if (link) {
+            var refIndex = link.indexOf('/ref=');
+            if (refIndex > 0) {
+              link = link.substring(0, refIndex);
+            }
+            if (!link.startsWith('http')) {
+              link = 'https://www.amazon.fr' + link;
+            }
+          }
+          
+          // Prix depuis .a-price-whole
+          var priceEl = product.querySelector('.a-price-whole');
+          if (priceEl) {
+            price = priceEl.innerText.trim().replace(/\\s+/g, '').replace(',', '.');
+          }
+          
+          // Image depuis img.s-image
+          var imgEl = product.querySelector('img.s-image');
+          if (imgEl) {
+            imageUrl = imgEl.getAttribute('src') || '';
+            // Si pas de src, essayer srcset
+            if (!imageUrl && imgEl.getAttribute('srcset')) {
+              var srcset = imgEl.getAttribute('srcset');
+              imageUrl = srcset.split(' ')[0];
+            }
+          }
+          
+          // Validation et ajout
+          if (title && title.length > 10 && link && link.includes('/dp/') && imageUrl) {
+            items.push({ 
+              title: title, 
+              price: price || 'N/A', 
+              link: link, 
+              image: imageUrl 
+            });
+          }
+        } catch(e) {}
+      }
+    } else {
+      // === LEBONCOIN ===
+      var selectors = [
+        '[data-qa-id="aditem_container"]',
+        '[class*="AdCard"]',
+        '[class*="aditem"]',
+        'a[href*="/ad/"]',
+        'article',
+        '[class*="item-card"]'
+      ];
+      var cards = document.querySelectorAll(selectors.join(', '));
+      debugInfo = 'Leboncoin: ' + cards.length + ' cards';
+      
+      if (cards.length === 0) {
+        cards = document.querySelectorAll('[class*="card"], [class*="item"]');
+      }
+      
+      var seen = {};
+      for (var i = 0; i < Math.min(cards.length, 30); i++) {
+        try {
+          var card = cards[i];
+          var title = '';
+          var price = '';
+          var link = '';
+          var img = '';
+          
+          // Titre
+          var titleEls = card.querySelectorAll('h2, h3, h4, span, p');
+          for (var t = 0; t < titleEls.length; t++) {
+            var txt = titleEls[t].innerText.trim();
+            if (txt.length > 3 && txt.length < 200 && !txt.match(/€/) && !txt.match(/^https/)) {
+              title = txt;
+              break;
+            }
+          }
+          
+          // Prix
+          var priceEls = card.querySelectorAll('[class*="price"], span, p, div');
+          for (var p = 0; p < priceEls.length; p++) {
+            var ptxt = priceEls[p].innerText.trim();
+            if (ptxt.match(/^\\d+[.,\\d]*\\s*€/) && ptxt.length < 30) {
+              price = ptxt;
+              break;
+            }
+          }
+          
+          // Lien
+          var linkEl = card.tagName === 'A' ? card : card.querySelector('a[href]');
+          if (linkEl && linkEl.href) link = linkEl.href;
+          
+          // Image
+          var imgEl = card.querySelector('img[src]');
+          if (imgEl) img = imgEl.src || imgEl.dataset.src || '';
+          if (!img) {
+            var allImgs = card.querySelectorAll('img');
+            for (var im = 0; im < allImgs.length; im++) {
+              var imgSrc = allImgs[im].src || allImgs[im].dataset.src || '';
+              if (imgSrc && imgSrc.length > 10) { img = imgSrc; break; }
+            }
+          }
+          
+          var key = title + price;
+          if ((title || price) && !seen[key]) {
+            seen[key] = true;
+            items.push({ title: title || 'Unknown', price: price || 'N/A', link: link || '', image: img || '' });
+          }
+        } catch(e) {}
+      }
     }
-    if (cards.length === 0) {
-      cards = document.querySelectorAll('li a[href]');
-    }
-    var seen = {};
-    var maxItems = Math.min(cards.length, 30);
-    for (var i = 0; i < maxItems; i++) {
-      var card = cards[i];
-      var title = '';
-      var price = '';
-      var link = '';
-      var img = '';
-      var titleEls = card.querySelectorAll('h2, h3, h4, [class*="title"], [class*="Title"], [class*="name"], [class*="Name"], [data-qa-id="aditem_title"], [data-testid*="title"], p[class*="text"]');
-      for (var t = 0; t < titleEls.length; t++) {
-        var txt = titleEls[t].innerText.trim();
-        if (txt.length > 3 && txt.length < 200) { title = txt; break; }
-      }
-      var priceEls = card.querySelectorAll('[class*="price"], [class*="Price"], [class*="cost"], [data-qa-id="aditem_price"], [data-testid*="price"]');
-      for (var p = 0; p < priceEls.length; p++) {
-        var ptxt = priceEls[p].innerText.trim();
-        if (ptxt.match(/\\d/) && ptxt.length < 30) { price = ptxt; break; }
-      }
-      if (!price) {
-        var allSpans = card.querySelectorAll('span, p, div');
-        for (var s = 0; s < allSpans.length; s++) {
-          var stxt = allSpans[s].innerText.trim();
-          if (stxt.match(/\\d+.*\u20ac/) || stxt.match(/\u20ac.*\\d+/)) { price = stxt; break; }
-        }
-      }
-      var linkEl = card.tagName === 'A' ? card : card.querySelector('a[href]');
-      if (linkEl && linkEl.href) link = linkEl.href;
-      var imgEl = card.querySelector('img[src]');
-      if (imgEl) img = imgEl.src || imgEl.dataset.src || imgEl.dataset.lazySrc || '';
-      if (!img) {
-        var bgEl = card.querySelector('[style*="background-image"]');
-        if (bgEl) {
-          var bgMatch = bgEl.style.backgroundImage.match(/url\\(["']?([^"')]+)["']?\\)/);
-          if (bgMatch) img = bgMatch[1];
-        }
-      }
-      var key = title + price;
-      if ((title || price) && !seen[key]) {
-        seen[key] = true;
-        items.push({ title: title, price: price, link: link, image: img });
-      }
-    }
+    
+    debugInfo += ' | Items: ' + items.length;
+    
     var pageTitle = document.title || '';
     var metaDesc = '';
     var metaEl = document.querySelector('meta[name="description"]');
     if (metaEl) metaDesc = metaEl.getAttribute('content') || '';
+    
     var bodyText = document.body ? document.body.innerText : '';
     bodyText = bodyText.replace(/\\s+/g, ' ').substring(0, 8000);
+    
     var result = {
       type: 'content',
       url: window.location.href,
       pageTitle: pageTitle,
       metaDescription: metaDesc,
       items: items,
-      bodyText: bodyText
+      bodyText: bodyText,
+      debug: debugInfo
     };
     window.ReactNativeWebView.postMessage(JSON.stringify(result));
   } catch(e) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'content', error: e.message, url: window.location.href, items: [], bodyText: document.body ? document.body.innerText.substring(0, 8000) : '', pageTitle: document.title || '' }));
+    window.ReactNativeWebView.postMessage(JSON.stringify({ 
+      type: 'content', 
+      error: e.message, 
+      url: window.location.href, 
+      items: [], 
+      bodyText: document.body ? document.body.innerText.substring(0, 8000) : '', 
+      pageTitle: document.title || '',
+      debug: 'Error: ' + e.message
+    }));
   }
 })();
 true;
@@ -148,6 +358,43 @@ const CORS_PROXIES = [
 async function fetchPageContentWeb(pageUrl: string): Promise<string> {
   console.log('[Browse] Fetching page content for web:', pageUrl);
   
+  // 1. Essai direct d'abord (plus discret, pas de proxy détectable)
+  try {
+    console.log('[Browse] Trying direct fetch...');
+    const response = await fetch(pageUrl, { 
+      signal: AbortSignal.timeout(8000),
+      mode: 'cors',
+    });
+    if (response.ok) {
+      const html = await response.text();
+      if (html && html.length > 100) {
+        console.log(`[Browse] Direct fetch success, ${html.length} chars`);
+        return parseHtmlToContent(html, pageUrl);
+      }
+    } else {
+      console.log(`[Browse] Direct fetch returned ${response.status}`);
+    }
+  } catch (e: any) {
+    console.log(`[Browse] Direct fetch failed: ${e?.message ?? e}`);
+  }
+
+  // 2. Essai no-cors (moins de données mais plus discret)
+  try {
+    console.log('[Browse] Trying no-cors fetch...');
+    const response = await fetch(pageUrl, { 
+      signal: AbortSignal.timeout(8000),
+      mode: 'no-cors',
+    });
+    const html = await response.text();
+    if (html && html.length > 100) {
+      console.log(`[Browse] No-cors fetch got ${html.length} chars`);
+      return parseHtmlToContent(html, pageUrl);
+    }
+  } catch (e: any) {
+    console.log(`[Browse] No-cors fetch failed: ${e?.message ?? e}`);
+  }
+
+  // 3. Proxies en dernier recours (plus détectable)
   for (const proxy of CORS_PROXIES) {
     try {
       const fetchUrl = proxy + encodeURIComponent(pageUrl);
@@ -173,40 +420,6 @@ async function fetchPageContentWeb(pageUrl: string): Promise<string> {
     } catch (e: any) {
       console.log(`[Browse] Proxy failed: ${e?.message ?? e}`);
     }
-  }
-
-  try {
-    console.log('[Browse] Trying direct fetch...');
-    const response = await fetch(pageUrl, { 
-      signal: AbortSignal.timeout(8000),
-      mode: 'cors',
-    });
-    if (response.ok) {
-      const html = await response.text();
-      if (html && html.length > 100) {
-        console.log(`[Browse] Direct fetch success, ${html.length} chars`);
-        return parseHtmlToContent(html, pageUrl);
-      }
-    } else {
-      console.log(`[Browse] Direct fetch returned ${response.status}`);
-    }
-  } catch (e: any) {
-    console.log(`[Browse] Direct fetch failed: ${e?.message ?? e}`);
-  }
-
-  try {
-    console.log('[Browse] Trying no-cors fetch...');
-    const response = await fetch(pageUrl, { 
-      signal: AbortSignal.timeout(8000),
-      mode: 'no-cors',
-    });
-    const html = await response.text();
-    if (html && html.length > 100) {
-      console.log(`[Browse] No-cors fetch got ${html.length} chars`);
-      return parseHtmlToContent(html, pageUrl);
-    }
-  } catch (e: any) {
-    console.log(`[Browse] No-cors fetch failed: ${e?.message ?? e}`);
   }
 
   console.log('[Browse] ALL fetch methods failed for', pageUrl);
@@ -302,6 +515,9 @@ export default function BrowseScreen() {
   const [pageLoaded, setPageLoaded] = useState<boolean>(false);
   const [showResults, setShowResults] = useState<boolean>(false);
   const [extractedContent, setExtractedContent] = useState<string>('');
+  const [showScanTutorial, setShowScanTutorial] = useState<boolean>(true);
+  const [dontShowTutorialAgain, setDontShowTutorialAgain] = useState<boolean>(false);
+  const [currentSlide, setCurrentSlide] = useState<number>(0);
 
   const [currentTipIndex, setCurrentTipIndex] = useState<number>(0);
   const [analysisStep, setAnalysisStep] = useState<number>(0);
@@ -323,6 +539,31 @@ export default function BrowseScreen() {
   const extractedContentRef = useRef<string>('');
   const scanTimeRef = useRef<number>(0);
   const screenshotsRef = useRef<string[]>([]);
+  const extractedItemsRef = useRef<Array<{title: string; link: string; image: string; price: string}>>([]);
+  const timeoutsRef = useRef<NodeJS.Timeout[]>([]);
+  const scanningRef = useRef<boolean>(false);
+
+  // Nettoyage de tous les timers à la destruction du composant
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach(clearTimeout);
+      timeoutsRef.current = [];
+    };
+  }, []);
+
+  // Charger la préférence du tutorial au mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem('scan_tutorial_hidden');
+        if (stored === 'true') {
+          setShowScanTutorial(false);
+        }
+      } catch (e) {
+        console.log('[Browse] Error loading tutorial preference:', e);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (scanning) {
@@ -344,18 +585,57 @@ export default function BrowseScreen() {
     }
   }, [scanning, scanTime]);
 
+  // Limite stricte de 30 secondes : arrêt forcé sans exception
   useEffect(() => {
     if (scanning) {
-      setTimeout(() => captureScreenshot(), 1500);
+      const hardStopTimeout = setTimeout(() => {
+        console.log('[Browse] ⚠️ HARD STOP: 30s limit reached, forcing scan termination');
+        // Arrêter le scroll
+        if (Platform.OS !== 'web' && webViewRef.current) {
+          try {
+            webViewRef.current.injectJavaScript(STOP_SCROLL_SCRIPT);
+          } catch (e) {}
+        }
+        scanningRef.current = false;
+        setScanning(false);
+        // Annuler tous les timers planifiés
+        timeoutsRef.current.forEach(clearTimeout);
+        timeoutsRef.current = [];
+        // Finaliser immédiatement
+        setShowResults(true);
+        overlayFade.setValue(0);
+        stopScan(name ?? 'Shopping', extractedContentRef.current, [...screenshotsRef.current]);
+      }, SCAN_DURATION_LIMIT * 1000);
+      return () => clearTimeout(hardStopTimeout);
+    }
+  }, [scanning, name, stopScan]);
 
-      const captureInterval = setInterval(() => {
-        captureScreenshot();
-      }, SCREENSHOT_INTERVAL);
+  // Planification récursive des captures avec délai aléatoire
+  const scheduleNextCapture = useCallback(() => {
+    if (!scanningRef.current || screenshotsRef.current.length >= MAX_SCREENSHOTS) return;
+    const delay = Math.random() * (MAX_SCREENSHOT_INTERVAL - MIN_SCREENSHOT_INTERVAL) + MIN_SCREENSHOT_INTERVAL;
+    const timeout = setTimeout(() => {
+      if (!scanningRef.current) return;
+      captureScreenshot();
+      scheduleNextCapture();
+    }, delay) as any;
+    timeoutsRef.current.push(timeout);
+  }, []);
 
-      const contentInterval = setInterval(() => {
-        extractPageContent();
-      }, 5000);
+  // Planification récursive des extractions avec délai aléatoire
+  const scheduleNextExtract = useCallback(() => {
+    if (!scanningRef.current) return;
+    const delay = Math.random() * (MAX_EXTRACT_INTERVAL - MIN_EXTRACT_INTERVAL) + MIN_EXTRACT_INTERVAL;
+    const timeout = setTimeout(() => {
+      if (!scanningRef.current) return;
+      extractPageContent();
+      scheduleNextExtract();
+    }, delay) as any;
+    timeoutsRef.current.push(timeout);
+  }, []);
 
+  useEffect(() => {
+    if (scanning) {
       const tipInterval = setInterval(() => {
         Animated.timing(tipFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
           setCurrentTipIndex((prev) => (prev + 1) % SCAN_TIPS.length);
@@ -364,8 +644,6 @@ export default function BrowseScreen() {
       }, 4000);
 
       return () => {
-        clearInterval(captureInterval);
-        clearInterval(contentInterval);
         clearInterval(tipInterval);
       };
     }
@@ -490,6 +768,26 @@ export default function BrowseScreen() {
 
       if (data.type === 'content' || data.items) {
         console.log(`[Browse] Extracted: ${data.items?.length ?? 0} items from ${data.pageTitle}`);
+        if (data.debug) {
+          console.log(`[Browse] [DEBUG] ${data.debug}`);
+        }
+        if (data.error) {
+          console.log(`[Browse] [ERROR] ${data.error}`);
+        }
+
+        // Store raw items for later URL enrichment
+        if (data.items && data.items.length > 0) {
+          extractedItemsRef.current = data.items.map((item: any) => ({
+            title: item.title || '',
+            link: item.link || '',
+            image: item.image || '',
+            price: item.price || '',
+          }));
+          console.log(`[Browse] 📦 Stored ${extractedItemsRef.current.length} items in ref for enrichment`);
+          extractedItemsRef.current.forEach((item, idx) => {
+            console.log(`[Browse]   Item #${idx+1}: "${item.title}" | Link: ${item.link ? '✓' : '✗'} | Image: ${item.image ? '✓' : '✗'}`);
+          });
+        }
 
         let content = `Page: ${data.pageTitle}\nURL: ${data.url}\n`;
         if (data.metaDescription) {
@@ -505,6 +803,7 @@ export default function BrowseScreen() {
             if (item.link) content += `Lien: ${item.link}\n`;
             if (item.image) content += `Image: ${item.image}\n`;
           });
+          console.log(`[Browse] ℹ️ Items with links/images: ${data.items.filter((i: any) => i.link || i.image).length}`);
         }
 
         if (data.bodyText) {
@@ -558,52 +857,131 @@ export default function BrowseScreen() {
       return;
     }
 
+    // Afficher le tutorial si pas encore caché
+    if (showScanTutorial) {
+      setShowScanTutorial(true);
+      return;
+    }
+
+    // Sinon, démarrer directement le scan
+    startActualScan();
+  }, [settings.geminiApiKey, showScanTutorial, router]);
+
+  const startActualScan = useCallback(() => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
     console.log(`[Browse] Starting VIDEO scan on ${name}`);
     setScanning(true);
+    scanningRef.current = true;
     setScanTime(0);
     scanTimeRef.current = 0;
     setExtractedContent('');
     extractedContentRef.current = '';
     screenshotsRef.current = [];
+    extractedItemsRef.current = [];
     setScreenshotCount(0);
     setContentExtracted(false);
     setCurrentTipIndex(0);
+    // Nettoyer les anciens timers
+    timeoutsRef.current.forEach(clearTimeout);
+    timeoutsRef.current = [];
     startScan();
 
-    if (Platform.OS === 'web') {
-      console.log('[Browse] Web: starting content fetch loop');
-      fetchWebContent();
-      const webFetchInterval = setInterval(() => {
-        console.log('[Browse] Web: refetching content...');
-        fetchWebContent();
-      }, 8000);
-      setTimeout(() => clearInterval(webFetchInterval), 35000);
-    } else {
-      extractPageContent();
-      setTimeout(() => extractPageContent(), 1500);
+    // Injection du script de scroll pour imiter un humain (native uniquement)
+    if (Platform.OS !== 'web' && webViewRef.current) {
+      const scrollTimeout = setTimeout(() => {
+        if (webViewRef.current) {
+          webViewRef.current.injectJavaScript(SCROLL_SCRIPT);
+          console.log('[Browse] Scroll simulation injected');
+        }
+      }, 2000) as any;
+      timeoutsRef.current.push(scrollTimeout);
     }
-  }, [startScan, name, settings.geminiApiKey, extractPageContent, router, fetchWebContent]);
+
+    // Délai initial aléatoire avant la première capture et extraction
+    // Augmenté pour Vinted qui charge dynamiquement
+    const firstCaptureDelay = Math.random() * 1500 + 3000; // 3 à 4.5 secondes
+    const firstExtractDelay = Math.random() * 2000 + 4000; // 4 à 6 secondes
+
+    if (Platform.OS === 'web') {
+      console.log('[Browse] Web: starting content fetch loop with random intervals');
+      // Boucle récursive avec délai aléatoire pour le web
+      const fetchWebLoop = async () => {
+        if (!scanningRef.current) return;
+        console.log('[Browse] Web: fetching content...');
+        await fetchWebContent();
+        if (scanningRef.current) {
+          const nextDelay = Math.random() * 6000 + 4000; // 4 à 10 secondes
+          const t = setTimeout(fetchWebLoop, nextDelay) as any;
+          timeoutsRef.current.push(t);
+        }
+      };
+      const t = setTimeout(fetchWebLoop, firstExtractDelay) as any;
+      timeoutsRef.current.push(t);
+    } else {
+      // Planification avec délais aléatoires (native)
+      const capT = setTimeout(() => {
+        if (!scanningRef.current) return;
+        captureScreenshot();
+        scheduleNextCapture();
+      }, firstCaptureDelay) as any;
+      timeoutsRef.current.push(capT);
+
+      const extT = setTimeout(() => {
+        if (!scanningRef.current) return;
+        extractPageContent();
+        scheduleNextExtract();
+      }, firstExtractDelay) as any;
+      timeoutsRef.current.push(extT);
+    }
+
+    console.log(`[Browse] First capture in ${Math.round(firstCaptureDelay)}ms, first extract in ${Math.round(firstExtractDelay)}ms`);
+  }, [startScan, name, url, source, extractPageContent, fetchWebContent, captureScreenshot, scheduleNextCapture, scheduleNextExtract]);
 
   const doStopScan = useCallback(async () => {
     console.log('[Browse] === doStopScan called ===');
     
+    // Arrêter le scroll immédiatement
+    if (Platform.OS !== 'web' && webViewRef.current) {
+      try {
+        webViewRef.current.injectJavaScript(STOP_SCROLL_SCRIPT);
+        console.log('[Browse] Scroll stopped');
+      } catch (e) {
+        console.log('[Browse] Failed to stop scroll:', e);
+      }
+    }
+
+    // Arrêter le flag de scan et annuler tous les timers planifiés
+    scanningRef.current = false;
+    timeoutsRef.current.forEach(clearTimeout);
+    timeoutsRef.current = [];
+
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      setTimeout(() => {
+      const hapticT = setTimeout(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      }, 100);
-      captureScreenshot();
-      extractPageContent();
-      console.log('[Browse] Final capture triggered before stop');
+      }, 100) as any;
+      timeoutsRef.current.push(hapticT);
+      // Capture finale après un petit délai aléatoire
+      const finalCaptureDelay = Math.random() * 500 + 200;
+      await new Promise<void>((resolve) => {
+        const captureT = setTimeout(() => {
+          captureScreenshot();
+          extractPageContent();
+          console.log('[Browse] Final capture triggered before stop');
+          resolve();
+        }, finalCaptureDelay) as any;
+        timeoutsRef.current.push(captureT);
+      });
     } else {
       console.log('[Browse] Web: doing final content fetch before stop...');
       await fetchWebContent();
     }
 
-    setTimeout(() => {
+    // Délai aléatoire avant finalisation (600-1000ms)
+    const finalDelay = Math.random() * 400 + 600;
+    const finalT = setTimeout(() => {
       const merchantName = name ?? 'Shopping';
       let content = extractedContentRef.current;
       const screenshots = [...screenshotsRef.current];
@@ -631,13 +1009,21 @@ export default function BrowseScreen() {
 
       console.log('[Browse] ============ SENDING TO GEMINI ============');
       console.log(`[Browse] Mode: ${screenshots.length > 0 ? 'VIDEO (' + screenshots.length + ' frames)' : 'TEXT-ONLY'}`);
+      console.log(`[Browse] Items to pass: ${extractedItemsRef.current.length} items`);
+      if (extractedItemsRef.current.length > 0) {
+        console.log('[Browse] Items being sent to enrichment:');
+        extractedItemsRef.current.forEach((item, idx) => {
+          console.log(`[Browse]   #${idx+1}: "${item.title}" | ${item.price}`);
+        });
+      }
       
       setScanning(false);
       setShowResults(true);
       overlayFade.setValue(0);
-      stopScan(merchantName, content, screenshots);
-    }, 800);
-  }, [stopScan, name, url, source, extractPageContent, fetchWebContent]);
+      stopScan(merchantName, content, screenshots, [...extractedItemsRef.current]);
+    }, finalDelay) as any;
+    timeoutsRef.current.push(finalT);
+  }, [stopScan, name, url, source, extractPageContent, fetchWebContent, captureScreenshot]);
 
   const handleStopScan = useCallback(() => {
     doStopScan();
@@ -742,10 +1128,11 @@ export default function BrowseScreen() {
             ref={webViewRef}
             source={{ uri: url ?? 'https://www.leboncoin.fr' }}
             style={styles.webview}
+            userAgent={WEBVIEW_USER_AGENT}
             onLoadEnd={() => {
               console.log('[Browse] Page loaded');
               setPageLoaded(true);
-              setTimeout(() => extractPageContent(), 1000);
+              // L'extraction sera déclenchée par le scan, pas au chargement
             }}
             onMessage={handleWebViewMessage}
             startInLoadingState
@@ -932,6 +1319,151 @@ export default function BrowseScreen() {
           </View>
         </Animated.View>
       )}
+
+      {/* Tutorial Modal Carousel */}
+      <Modal
+        visible={showScanTutorial}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowScanTutorial(false)}
+      >
+        <View style={styles.tutorialOverlay}>
+          <View style={styles.tutorialModal}>
+            {/* Header with Title */}
+            <View style={styles.tutorialHeader}>
+              <Text style={styles.tutorialTitle}>✨ Guide de Scan</Text>
+              <Text style={styles.tutorialSubtitle}>Étape {currentSlide + 1} sur 4</Text>
+            </View>
+
+            {/* Carousel Slides */}
+            <View style={styles.carouselContainer}>
+              {/* Slide 1: Recherche */}
+              {currentSlide === 0 && (
+                <View style={styles.slide}>
+                  <View style={styles.slideIconContainer}>
+                    <Text style={styles.slideIcon}>🔍</Text>
+                  </View>
+                  <Text style={styles.slideTitle}>Recherche Pertinente</Text>
+                  <Text style={styles.slideText}>
+                    Assurez-vous d'avoir une bonne recherche ou catégorie active sur le site en question. Plus la sélection est ciblée, meilleures seront les pépites trouvées.
+                  </Text>
+                </View>
+              )}
+
+              {/* Slide 2: Lancer le Scan */}
+              {currentSlide === 1 && (
+                <View style={styles.slide}>
+                  <View style={styles.slideIconContainer}>
+                    <Text style={styles.slideIcon}>🚀</Text>
+                  </View>
+                  <Text style={styles.slideTitle}>Lancez le Scan</Text>
+                  <Text style={styles.slideText}>
+                    Cliquez sur le bouton SCAN et ne touchez plus à l'écran. L'application va automatiquement capturer et analyser les articles.
+                  </Text>
+                </View>
+              )}
+
+              {/* Slide 3: Laisser Faire */}
+              {currentSlide === 2 && (
+                <View style={styles.slide}>
+                  <View style={styles.slideIconContainer}>
+                    <Text style={styles.slideIcon}>☕</Text>
+                  </View>
+                  <Text style={styles.slideTitle}>Laissez Faire l'App</Text>
+                  <Text style={styles.slideText}>
+                    Pépite prend les captures et analyse automatiquement. Vous pouvez vous détendre pendant ce temps et laisser l'IA faire son travail.
+                  </Text>
+                </View>
+              )}
+
+              {/* Slide 4: Résultats */}
+              {currentSlide === 3 && (
+                <View style={styles.slide}>
+                  <View style={styles.slideIconContainer}>
+                    <Text style={styles.slideIcon}>💎</Text>
+                  </View>
+                  <Text style={styles.slideTitle}>Récupérez les Résultats</Text>
+                  <Text style={styles.slideText}>
+                    Une fois le scan terminé, cliquez sur "Voir les résultats" pour accéder à toutes les pépites trouvées avec leurs marges estimées.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Progress Dots */}
+            <View style={styles.progressDots}>
+              {[0, 1, 2, 3].map((index) => (
+                <View
+                  key={index}
+                  style={[styles.progressDot, index === currentSlide && styles.progressDotActive]}
+                />
+              ))}
+            </View>
+
+            {/* Navigation and Controls */}
+            <View style={styles.tutorialControls}>
+              {/* Left Arrow */}
+              <TouchableOpacity
+                style={[styles.arrowButton, currentSlide === 0 && styles.arrowButtonDisabled]}
+                onPress={() => currentSlide > 0 && setCurrentSlide(currentSlide - 1)}
+                disabled={currentSlide === 0}
+              >
+                <ChevronLeft size={24} color={currentSlide === 0 ? Colors.textMuted : Colors.gold} />
+              </TouchableOpacity>
+
+              {/* Checkbox */}
+              <TouchableOpacity
+                style={styles.checkboxCompact}
+                onPress={() => setDontShowTutorialAgain(!dontShowTutorialAgain)}
+              >
+                <View style={[styles.checkboxSmall, dontShowTutorialAgain && styles.checkboxSmallChecked]}>
+                  {dontShowTutorialAgain && <Text style={styles.checkboxSmallTick}>✓</Text>}
+                </View>
+                <Text style={styles.checkboxSmallLabel}>Ne plus afficher</Text>
+              </TouchableOpacity>
+
+              {/* Right Arrow */}
+              <TouchableOpacity
+                style={[styles.arrowButton, currentSlide === 3 && styles.arrowButtonDisabled]}
+                onPress={() => currentSlide < 3 && setCurrentSlide(currentSlide + 1)}
+                disabled={currentSlide === 3}
+              >
+                <ChevronRight size={24} color={currentSlide === 3 ? Colors.textMuted : Colors.gold} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Bottom Buttons */}
+            <View style={styles.tutorialButtonsBottom}>
+              <TouchableOpacity
+                style={styles.tutorialCancelBtn}
+                onPress={() => {
+                  setShowScanTutorial(false);
+                  setCurrentSlide(0);
+                }}
+              >
+                <Text style={styles.tutorialCancelText}>Annuler</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.tutorialStartBtn}
+                onPress={async () => {
+                  if (dontShowTutorialAgain) {
+                    try {
+                      await AsyncStorage.setItem('scan_tutorial_hidden', 'true');
+                    } catch (e) {
+                      console.log('[Browse] Error saving tutorial preference:', e);
+                    }
+                  }
+                  setShowScanTutorial(false);
+                  setCurrentSlide(0);
+                }}
+              >
+                <Text style={styles.tutorialStartText}>Démarrer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1322,5 +1854,186 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 14,
     fontWeight: '600' as const,
+  },
+  // Tutorial Modal Carousel Styles
+  tutorialOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  tutorialModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    width: '100%',
+    maxHeight: '92%',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  tutorialHeader: {
+    backgroundColor: 'transparent',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  tutorialTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  tutorialSubtitle: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  carouselContainer: {
+    height: 210,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  slide: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  slideIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: Colors.card,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  slideIcon: {
+    fontSize: 36,
+  },
+  slideTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  slideText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  progressDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
+  },
+  progressDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.cardBorder,
+  },
+  progressDotActive: {
+    backgroundColor: Colors.gold,
+    width: 24,
+  },
+  tutorialControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  arrowButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.card,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  arrowButtonDisabled: {
+    opacity: 0.3,
+  },
+  checkboxCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    marginHorizontal: 8,
+  },
+  checkboxSmall: {
+    width: 18,
+    height: 18,
+    borderRadius: 3,
+    borderWidth: 1.5,
+    borderColor: Colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxSmallChecked: {
+    backgroundColor: Colors.gold,
+  },
+  checkboxSmallTick: {
+    color: Colors.surface,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  checkboxSmallLabel: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  tutorialButtonsBottom: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+    paddingHorizontal: 24,
+  },
+  tutorialCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: Colors.gold,
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  tutorialCancelText: {
+    color: Colors.gold,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  tutorialStartBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: Colors.gold,
+    alignItems: 'center',
+  },
+  tutorialStartText: {
+    color: Colors.surface,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
