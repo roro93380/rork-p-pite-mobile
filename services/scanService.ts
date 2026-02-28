@@ -74,52 +74,54 @@ interface GeminiPart {
 }
 
 function buildVideoPrompt(merchantName: string, pageContent: string): string {
-  return `Tu es un EXPERT en achat-revente et flipping depuis 15 ans. Tu connais parfaitement les cotes du marché de l'occasion en France.
+  return `Tu es un EXPERT en achat-revente et flipping.
 
-Tu vas recevoir des images (captures d'écran de l'application) ET un bloc de données textuelles (JSON intercepté de l'API et textes visibles de la page) provenant de "${merchantName}".
+Tu reçois des captures d'écran de l'application "${merchantName}".
+Tu disposes aussi (parfois) de données textuelles interceptées en arrière-plan :
+${pageContent ? `\n--- DONNÉES INTERCEPTÉES ---\n${pageContent.substring(0, 15000)}\n--- FIN ---` : 'Aucune donnée texte disponible pour ce scan.'}
 
-${pageContent ? `\n--- DONNÉES INTERCEPTÉES (API JSON & TEXTES) ---\n${pageContent.substring(0, 15000)}\n--- FIN DES DONNÉES ---` : ''}
+MISSION :
+1. Identifie TOUTES les bonnes affaires visibles sur les IMAGES (prix au moins 8% sous la cote de revente).
+2. Si le texte intercepté contient l'URL de l'annonce ou l'URL de l'image correspondante, ajoute-les.
+3. CRUCIAL : Si tu ne trouves pas l'URL dans le texte, CE N'EST PAS GRAVE. Renvoie quand même l'annonce trouvée sur l'image en mettant une chaîne vide "" pour l'URL et l'image.
 
-MISSION CROISÉE :
-1. Regarde attentivement les images pour identifier les produits VUS par l'utilisateur.
-2. Utilise le bloc de données interceptées pour retrouver les URLs (adUrl) et URLs d'images (adImageUrl) EXCACTES correspondant aux produits vus sur les images.
-
-RÈGLE ABSOLUE : Trouve les VRAIES bonnes affaires (prix au moins 8% sous la cote). Tout profit compte, même 5€. N'invente jamais d'annonces.
+Ne sois pas trop strict. Dès que tu vois un produit revendable avec une marge (même 5€), c'est une pépite. N'invente pas d'annonces qui ne sont pas sur l'écran.
 
 Réponds UNIQUEMENT en JSON valide, sans markdown ni backticks :
 {
   "pepites": [
     {
-      "title": "Nom EXACT du produit",
+      "title": "Nom du produit vu à l'écran",
       "sellerPrice": 0,
       "estimatedValue": 0,
       "profit": 0,
       "source": "${merchantName}",
       "sourceUrl": "URL de base de la plateforme",
-      "category": "Catégorie du produit",
+      "category": "Catégorie",
       "description": "Pourquoi c'est une bonne affaire",
       "imageKeyword": "mot-clé anglais (watch, sneakers, phone...)",
-      "adUrl": "L'URL réelle du produit, trouvée dans les données interceptées",
-      "adImageUrl": "L'URL de l'image (copie INTÉGRALEMENT depuis les données interceptées. Ne la tronque JAMAIS)"
+      "adUrl": "URL de l'annonce trouvée dans le texte (ou chaîne vide '' si introuvable)",
+      "adImageUrl": "URL de l'image trouvée dans le texte (ou chaîne vide '' si introuvable)"
     }
   ]
 }`;
 }
 
 function buildTextOnlyPrompt(merchantName: string, pageContent: string): string {
-  return `Tu es un EXPERT en achat-revente et flipping depuis 15 ans.
+  return `Tu es un EXPERT en achat-revente.
 
-L'utilisateur navigue sur "${merchantName}". Voici les données réseau interceptées en arrière-plan :
-${pageContent ? `\n---\n${pageContent.substring(0, 15000)}\n---` : `Aucune donnée.`}
+L'utilisateur navigue sur "${merchantName}". Voici les données réseau interceptées ou lues à l'écran :
+${pageContent ? `\n---\n${pageContent.substring(0, 15000)}\n---` : `Aucune donnée. Renvoie {"pepites": []}`}
 
 MISSION :
-Analyse ces données pour y dénicher des annonces sous-évaluées d'au moins 8%. Ne te base que sur ces données.
+Analyse ces données pour y dénicher des annonces sous-évaluées d'au moins 8%.
+Même si les données sont partielles ou brouillonnes, essaie de reconstituer les annonces (Titre + Prix).
 
-Réponds UNIQUEMENT avec un JSON valide, sans markdown, dans ce format exact :
+Réponds UNIQUEMENT avec un JSON valide, sans markdown ni backticks :
 {
   "pepites": [
     {
-      "title": "Titre",
+      "title": "Titre trouvé dans le texte",
       "sellerPrice": 0,
       "estimatedValue": 0,
       "profit": 0,
@@ -128,8 +130,8 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, dans ce format exact :
       "category": "Catégorie",
       "description": "Justification du profit",
       "imageKeyword": "mot-clé anglais",
-      "adUrl": "L'URL exacte depuis le JSON",
-      "adImageUrl": "L'URL entière de l'image depuis le JSON sans la couper"
+      "adUrl": "L'URL (ou chaîne vide '')",
+      "adImageUrl": "L'URL de l'image (ou chaîne vide '')"
     }
   ]
 }`;
@@ -388,6 +390,5 @@ export async function analyzeWithGemini(
 }
 
 export function generateFallbackPepites(merchantName: string): Pepite[] {
-  // Gardé tel quel
   return []; 
 }
