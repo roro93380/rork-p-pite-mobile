@@ -76,6 +76,19 @@ export default React.memo(function PepiteCard({
     return price.toLocaleString('fr-FR') + '€';
   };
 
+  // Calcul de la marge en %
+  const marginPct = pepite.sellerPrice > 0
+    ? Math.round(((pepite.estimatedValue - pepite.sellerPrice) / pepite.sellerPrice) * 100)
+    : 0;
+
+  const badge = marginPct >= 30
+    ? { label: '💎 Pépite', color: Colors.gold, textColor: '#000' }
+    : marginPct >= 20
+    ? { label: '🔥 Bonne marge', color: '#FF7A00', textColor: '#fff' }
+    : marginPct >= 10
+    ? { label: '✅ Bon plan', color: '#00C853', textColor: '#fff' }
+    : null;
+
   return (
     <Animated.View
       style={[styles.container, { transform: [{ scale: scaleAnim }] }]}
@@ -103,6 +116,11 @@ export default React.memo(function PepiteCard({
           <View style={styles.sourceTag}>
             <Text style={styles.sourceText}>{pepite.source}</Text>
           </View>
+          {badge && (
+            <View style={[styles.badgeTag, { backgroundColor: badge.color }]}>
+              <Text style={[styles.badgeText, { color: badge.textColor }]}>{badge.label}</Text>
+            </View>
+          )}
         </View>
       </TouchableOpacity>
 
@@ -197,6 +215,18 @@ const styles = StyleSheet.create({
     color: Colors.gold,
     fontSize: 11,
     fontWeight: '600' as const,
+  },
+  badgeTag: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700' as const,
   },
   actionsRow: {
     flexDirection: 'row',
