@@ -28,6 +28,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   const [scanTimer, setScanTimer] = useState<number>(0);
   const [lastScanResults, setLastScanResults] = useState<Pepite[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSessions, setScanSessions] = useState<ScanSession[]>([]);
 
   useEffect(() => {
     setupNotifications().then((granted) => {
@@ -57,6 +58,23 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       return DEFAULT_SETTINGS;
     },
   });
+
+  const scanSessionsQuery = useQuery({
+    queryKey: ['scan_sessions'],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(STORAGE_KEYS.SCAN_SESSIONS);
+      if (stored) {
+        return JSON.parse(stored) as ScanSession[];
+      }
+      return [];
+    },
+  });
+
+  useEffect(() => {
+    if (scanSessionsQuery.data) {
+      setScanSessions(scanSessionsQuery.data);
+    }
+  }, [scanSessionsQuery.data]);
 
   useEffect(() => {
     if (pepitesQuery.data) {
@@ -237,6 +255,26 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         }
       }
 
+      // Sauvegarder la session de scan
+      try {
+        const session: ScanSession = {
+          id: Date.now().toString(),
+          date: new Date().toISOString(),
+          duration: 0,
+          pepitesFound: results.length,
+          totalProfit: results.reduce((sum, p) => sum + (p.profit ?? 0), 0),
+          source: results[0]?.source ?? 'Inconnu',
+        };
+        const stored = await AsyncStorage.getItem(STORAGE_KEYS.SCAN_SESSIONS);
+        const sessions: ScanSession[] = stored ? JSON.parse(stored) : [];
+        const updated = [session, ...sessions].slice(0, 200); // garder max 200 sessions
+        await AsyncStorage.setItem(STORAGE_KEYS.SCAN_SESSIONS, JSON.stringify(updated));
+        setScanSessions(updated);
+        queryClient.invalidateQueries({ queryKey: ['scan_sessions'] });
+      } catch (e) {
+        console.log('[PepiteProvider] Error saving scan session:', e);
+      }
+
       setScanError(null);
     },
     onError: (error: Error) => {
@@ -279,6 +317,52 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     [pepites]
   );
 
+  // Stats de scan calculées
+  const scanStats = useMemo(() => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(startOfDay);
+    startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const scansToday = scanSessions.filter(s => new Date(s.date) >= startOfDay).length;
+    const scansThisWeek = scanSessions.filter(s => new Date(s.date) >= startOfWeek).length;
+    const scansThisMonth = scanSessions.filter(s => new Date(s.date) >= startOfMonth).length;
+    const totalScans = scanSessions.length;
+
+    const favProfit = favoritePepites.reduce((sum, p) => sum + (p.profit ?? 0), 0);
+    const totalPepitesAnalyzed = activePepites.length;
+
+    const topSource = scanSessions.length > 0
+      ? Object.entries(
+          scanSessions.reduce((acc: Record<string, number>, s) => {
+            acc[s.source] = (acc[s.source] ?? 0) + 1;
+            return acc;
+          }, {})
+        ).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+      : '—';
+
+    const bestDeal = favoritePepites.reduce<Pepite | null>((best, p) =>
+      (!best || p.profit > best.profit) ? p : best, null
+    );
+
+    const avgProfit = totalPepitesAnalyzed > 0
+      ? activePepites.reduce((sum, p) => sum + (p.profit ?? 0), 0) / totalPepitesAnalyzed
+      : 0;
+
+    return {
+      scansToday,
+      scansThisWeek,
+      scansThisMonth,
+      totalScans,
+      favProfit,
+      totalPepitesAnalyzed,
+      topSource,
+      bestDeal,
+      avgProfit,
+    };
+  }, [scanSessions, favoritePepites, activePepites]);
+
   const getPepiteById = useCallback(
     (id: string) => pepites.find((p) => p.id === id),
     [pepites]
@@ -297,6 +381,8 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     isAnalyzing: scanMutation.isPending,
     lastScanResults,
     scanError,
+    scanSessions,
+    scanStats,
     toggleFavorite,
     trashPepite,
     restorePepite,

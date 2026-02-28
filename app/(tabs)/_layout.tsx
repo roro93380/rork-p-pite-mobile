@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Home, Heart, Settings } from 'lucide-react-native';
+import { Home, BarChart2, Settings } from 'lucide-react-native';
 import React from 'react';
 import Colors from '@/constants/colors';
 
@@ -29,10 +29,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="mine"
+        options={{
+          title: 'La Mine',
+          tabBarIcon: ({ color, size }) => <BarChart2 size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="favorites"
         options={{
-          title: 'Favoris',
-          tabBarIcon: ({ color, size }) => <Heart size={size} color={color} />,
+          href: null,
         }}
       />
       <Tabs.Screen
