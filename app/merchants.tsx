@@ -10,10 +10,19 @@ import {
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, ChevronRight, Globe } from 'lucide-react-native';
+import { ArrowLeft, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { MERCHANTS, Merchant } from '@/mocks/merchants';
+
+// Regroupement simplifié des catégories pour l'affichage
+const CATEGORY_GROUPS: { label: string; emoji: string; categories: string[] }[] = [
+  { label: 'Généraliste', emoji: '🌍', categories: ['Généraliste', 'Automobile'] },
+  { label: 'Mode & Seconde main', emoji: '👗', categories: ['Mode & Accessoires'] },
+  { label: 'Luxe & Déco', emoji: '✨', categories: ['Luxe', 'Mobilier & Déco', 'Beauté'] },
+  { label: 'Marketplace & Enchères', emoji: '🛒', categories: ['Marketplace', 'Enchères & Achat', 'Enchères', 'Déstockage', 'Ventes État', 'Solidaire'] },
+  { label: 'Reconditionné & Sport', emoji: '♻️', categories: ['Reconditionné', 'Sport'] },
+];
 
 function MerchantRow({ merchant, onPress, index }: { merchant: Merchant; onPress: (m: Merchant) => void; index: number }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -94,19 +103,26 @@ export default function MerchantsScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.sectionHeader}>
-          <Globe size={14} color={Colors.gold} />
-          <Text style={styles.sectionTitle}>PLATEFORMES DISPONIBLES</Text>
-        </View>
-
-        {MERCHANTS.map((merchant, index) => (
-          <MerchantRow
-            key={merchant.id}
-            merchant={merchant}
-            onPress={handleSelectMerchant}
-            index={index}
-          />
-        ))}
+        {CATEGORY_GROUPS.map((group) => {
+          const groupMerchants = MERCHANTS.filter((m) => group.categories.includes(m.category));
+          if (groupMerchants.length === 0) return null;
+          return (
+            <View key={group.label}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionEmoji}>{group.emoji}</Text>
+                <Text style={styles.sectionTitle}>{group.label.toUpperCase()}</Text>
+              </View>
+              {groupMerchants.map((merchant, index) => (
+                <MerchantRow
+                  key={merchant.id}
+                  merchant={merchant}
+                  onPress={handleSelectMerchant}
+                  index={index}
+                />
+              ))}
+            </View>
+          );
+        })}
 
         <View style={styles.hint}>
           <Text style={styles.hintText}>
@@ -167,7 +183,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 14,
+    marginBottom: 12,
+    marginTop: 20,
+  },
+  sectionEmoji: {
+    fontSize: 14,
   },
   sectionTitle: {
     color: Colors.gold,

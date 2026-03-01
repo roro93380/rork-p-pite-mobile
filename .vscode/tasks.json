@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Expo Start LAN",
+			"type": "shell",
+			"command": "C:\\nodejs\\node-v20.18.3-win-x64\\node.exe node_modules\\@expo\\cli\\build\\bin\\cli start --lan",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

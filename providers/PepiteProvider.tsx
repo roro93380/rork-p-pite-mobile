@@ -194,47 +194,96 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         console.log(`[PepiteProvider] ✅ TEXT analysis returned ${results.length} pepites`);
       }
 
-      // Enrichir les pépites avec les URLs et images des items extrait
+      // Enrichir les pépites avec les URLs et images des items extraits
       if (extractedItems && extractedItems.length > 0) {
         console.log(`[PepiteProvider] 🔍 Starting enrichment with ${extractedItems.length} extracted items...`);
-        console.log(`[PepiteProvider] Items to match against:`, extractedItems.map(i => i.title).join(' | '));
         
-        results = results.map((pepite) => {
-          // Fonction de matching par titre améliorée (fuzzy)
-          let matchingItem = null;
-          let bestMatchScore = 0;
-
-          for (const item of extractedItems) {
-            // Extraire les mots clés significatifs (> 3 chars)
-            const pepiteWords = pepite.title.toLowerCase().split(/[\s,\-()]+/).filter((w: string) => w.length > 3);
-            const itemWords = item.title.toLowerCase().split(/[\s,\-()]+/).filter((w: string) => w.length > 3);
+        const usedItemIndices = new Set<number>();
+        
+        // Normaliser un titre pour comparaison
+        const normalize = (s: string): string =>
+          s.toLowerCase().replace(/[^a-z0-9àâäéèêëïîôùûüçœæ]/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        // Extraire les mots d'un titre normalisé
+        const getWords = (s: string): string[] =>
+          normalize(s).split(' ').filter(w => w.length > 0);
+        
+        // Trier les pépites : titre le plus long d'abord (plus facile à matcher précisément)
+        const pepiteIndices = results.map((_: any, i: number) => i);
+        pepiteIndices.sort((a: number, b: number) => results[b].title.length - results[a].title.length);
+        
+        const enrichedResults = [...results];
+        
+        for (const pepiteIdx of pepiteIndices) {
+          const pepite = results[pepiteIdx];
+          
+          // Si Gemini a déjà fourni une URL valide, la garder directement
+          if (pepite.adUrl && pepite.adUrl.startsWith('http') && pepite.adUrl.length > 30 && !pepite.adUrl.includes('/q/') && !pepite.adUrl.includes('/l/')) {
+            console.log(`[PepiteProvider] ✅ Keeping Gemini URL for "${pepite.title}"`);
+            continue;
+          }
+          
+          const pepNorm = normalize(pepite.title);
+          const pepWords = getWords(pepite.title);
+          if (pepWords.length === 0) continue;
+          
+          let bestScore = 0;
+          let bestIdx = -1;
+          
+          for (let idx = 0; idx < extractedItems.length; idx++) {
+            if (usedItemIndices.has(idx)) continue;
             
-            // Compter les mots en commun
-            const commonWords = pepiteWords.filter((w: string) => itemWords.some(iw => iw.includes(w) || w.includes(iw)));
-            const matchScore = commonWords.length;
+            const item = extractedItems[idx];
+            const itemNorm = normalize(item.title);
+            const itemWords = getWords(item.title);
             
-            // Match si au moins 2 mots clés en commun, ou si les premiers 25 chars correspondent
-            const firstCharsMatch = pepite.title.toLowerCase().substring(0, 25) === item.title.toLowerCase().substring(0, 25);
-            const isGoodMatch = matchScore >= 2 || firstCharsMatch;
+            // Score 1 : Containment (un titre contient l'autre) → très fiable
+            let score = 0;
+            if (itemNorm.includes(pepNorm) || pepNorm.includes(itemNorm)) {
+              score = 100;
+            }
             
-            if (isGoodMatch && matchScore > bestMatchScore) {
-              bestMatchScore = matchScore;
-              matchingItem = item;
+            // Score 2 : Ratio de mots de la pépite trouvés dans l'item
+            let matchedWords = 0;
+            for (const pw of pepWords) {
+              if (itemWords.some((iw: string) => iw === pw || iw.includes(pw) || pw.includes(iw))) {
+                matchedWords++;
+              }
+            }
+            const ratio = matchedWords / pepWords.length;
+            score = Math.max(score, ratio * 100);
+            
+            // Score 3 : Premiers 25 chars identiques → quasi certain
+            if (pepNorm.substring(0, 25) === itemNorm.substring(0, 25) && pepNorm.length >= 5) {
+              score = Math.max(score, 95);
+            }
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestIdx = idx;
             }
           }
-
-          if (matchingItem && bestMatchScore >= 2) {
-            console.log(`[PepiteProvider] 🔗 Matched "${pepite.title}" → ${matchingItem.link} (score: ${bestMatchScore})`);
-            return {
+          
+          // Seuil : au moins 50% des mots doivent matcher
+          if (bestIdx >= 0 && bestScore >= 50) {
+            usedItemIndices.add(bestIdx);
+            const matchedItem = extractedItems[bestIdx];
+            console.log(`[PepiteProvider] 🔗 Matched "${pepite.title}" → ${matchedItem.link} (${bestScore.toFixed(0)}%)`);
+            enrichedResults[pepiteIdx] = {
               ...pepite,
-              adUrl: matchingItem.link,
-              adImageUrl: matchingItem.image,
+              // image = champ utilisé par PepiteCard pour afficher la photo
+              image: matchedItem.image || pepite.image,
+              // sourceUrl = lien vers l'annonce (utilisé quand on clique)
+              sourceUrl: matchedItem.link || pepite.sourceUrl,
+              adUrl: matchedItem.link,
+              adImageUrl: matchedItem.image,
             };
           } else {
-            console.log(`[PepiteProvider] ❌ No match for "${pepite.title}" (checked ${extractedItems.length} items, best score: ${bestMatchScore})`);
+            console.log(`[PepiteProvider] ❌ No match for "${pepite.title}" (best: ${bestScore.toFixed(0)}%)`);
           }
-          return pepite;
-        });
+        }
+        
+        results = enrichedResults;
       } else {
         console.log('[PepiteProvider] ℹ️ No extracted items available for enrichment');
       }
