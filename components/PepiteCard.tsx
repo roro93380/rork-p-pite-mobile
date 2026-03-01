@@ -8,6 +8,7 @@ import {
   Dimensions,
   Platform,
   Linking,
+  Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Heart, Trash2, ExternalLink } from 'lucide-react-native';
@@ -62,10 +63,23 @@ export default React.memo(function PepiteCard({
   }, [pepite.id, onToggleFavorite]);
 
   const handleTrash = useCallback(() => {
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    }
-    onTrash(pepite.id);
+    Alert.alert(
+      'Supprimer cette pépite ?',
+      'Cette action est irréversible.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: () => {
+            if (Platform.OS !== 'web') {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            }
+            onTrash(pepite.id);
+          },
+        },
+      ]
+    );
   }, [pepite.id, onTrash]);
 
   const handleOpenLink = useCallback(() => {
