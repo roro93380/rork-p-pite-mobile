@@ -83,8 +83,15 @@ export default React.memo(function PepiteCard({
   }, [pepite.id, onTrash]);
 
   const handleOpenLink = useCallback(() => {
-    Linking.openURL(pepite.sourceUrl);
-  }, [pepite.sourceUrl]);
+    const url = pepite.adUrl || pepite.sourceUrl;
+    if (!url || !url.startsWith('http')) {
+      Alert.alert('Lien indisponible', "L'URL de cette annonce n'a pas pu être récupérée par l'IA.");
+      return;
+    }
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Erreur', "Impossible d'ouvrir ce lien.");
+    });
+  }, [pepite.sourceUrl, pepite.adUrl]);
 
   const formatPrice = (price: number) => {
     return price.toLocaleString('fr-FR') + '€';

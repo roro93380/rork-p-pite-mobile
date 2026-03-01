@@ -85,16 +85,33 @@ true;
 const CONTENT_EXTRACT_JS = `
 (function() {
   try {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: 'EXTRACT_JS_START', url: window.location.href }));
     var items = [];
-    var isVinted = window.location.href.includes('vinted.fr');
-    var isEbay = window.location.href.includes('ebay.com') || window.location.href.includes('ebay.fr');
-    var isAmazon = window.location.href.includes('amazon.fr') || window.location.href.includes('amazon.com');
+    var loc = window.location.href;
+    var isVinted = loc.includes('vinted.fr');
+    var isEbay = loc.includes('ebay.com') || loc.includes('ebay.fr');
+    var isAmazon = loc.includes('amazon.fr') || loc.includes('amazon.com');
+    var isRakuten = loc.includes('rakuten.com') || loc.includes('rakuten.fr');
+    var isBackMarket = loc.includes('backmarket.com') || loc.includes('backmarket.fr');
+    var isVestiaire = loc.includes('vestiairecollective.com');
+    var isSelency = loc.includes('selency.com') || loc.includes('selency.fr');
+    var isAutoScout = loc.includes('autoscout24.');
+    var isKleinanzeigen = loc.includes('kleinanzeigen.de');
+    var isAgorastore = loc.includes('agorastore.fr');
+    var isLabelEmmaus = loc.includes('label-emmaus.co');
+    var isZenMarket = loc.includes('zenmarket.jp');
+    var isStocklear = loc.includes('stocklear.fr');
+    var isCatawiki = loc.includes('catawiki.com');
+    var isWallapop = loc.includes('wallapop.com');
+    var isTroostwijk = loc.includes('troostwijkauctions.com') || loc.includes('troostwijk.');
+    var isLeboncoin = loc.includes('leboncoin.fr');
     var debugInfo = '';
     
     if (isVinted) {
       // === VINTED ===
       var containers = document.querySelectorAll('[class*="new-item-box"]');
       debugInfo = 'Vinted: ' + containers.length + ' containers';
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: 'VINTED: containers=' + containers.length + ' | url=' + loc }));
       
       for (var i = 0; i < containers.length; i++) {
         try {
@@ -120,6 +137,7 @@ const CONTENT_EXTRACT_JS = `
       // === EBAY (eBay.fr) ===
       var cards = document.querySelectorAll('li.s-card');
       debugInfo = 'eBay: ' + cards.length + ' cards';
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: 'EBAY: cards=' + cards.length + ' | url=' + loc }));
       
       for (var i = 0; i < cards.length; i++) {
         try {
@@ -175,6 +193,7 @@ const CONTENT_EXTRACT_JS = `
       // === AMAZON ===
       var products = document.querySelectorAll('[data-component-type="s-search-result"]');
       debugInfo = 'Amazon: ' + products.length + ' products';
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: 'AMAZON: products=' + products.length + ' | url=' + loc }));
       
       for (var i = 0; i < products.length; i++) {
         try {
@@ -242,7 +261,864 @@ const CONTENT_EXTRACT_JS = `
           }
         } catch(e) {}
       }
-    } else {
+    } else if (isRakuten) {
+      // === RAKUTEN ===
+      var products = document.querySelectorAll('div[data-productid]');
+      debugInfo = 'Rakuten: ' + products.length + ' products';
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: 'RAKUTEN: products=' + products.length + ' | url=' + loc }));
+      
+      for (var i = 0; i < products.length; i++) {
+        try {
+          var product = products[i];
+          var title = '';
+          var price = '';
+          var link = '';
+          var imageUrl = '';
+          
+          // Titre depuis p[data-qa="sdt_p"]
+          var titleEl = product.querySelector('p[data-qa="sdt_p"]');
+          if (titleEl) {
+            title = titleEl.innerText.trim();
+          }
+          
+          // Lien depuis a[href*="/mfp/"]
+          var linkEl = product.querySelector('a[href*="/mfp/"]');
+          if (!linkEl) {
+            linkEl = product.querySelector('a[href]');
+          }
+          if (linkEl) {
+            var href = linkEl.getAttribute('href') || '';
+            if (href && !href.startsWith('http')) {
+              link = 'https://fr.shopping.rakuten.com' + href;
+            } else {
+              link = href;
+            }
+            var qIndex = link.indexOf('?');
+            if (qIndex > 0) {
+              link = link.substring(0, qIndex);
+            }
+          }
+          
+          // Prix — occasion en priorité (meilleur deal), sinon neuf
+          var usedPriceEl = product.querySelector('[data-qa="used_product"] span.b');
+          var newPriceEl = product.querySelector('[data-qa="new_product"] span.b');
+          if (usedPriceEl) {
+            price = usedPriceEl.innerText.trim();
+          } else if (newPriceEl) {
+            price = newPriceEl.innerText.trim();
+          }
+          
+          // Image depuis img dans le conteneur
+          var imgEl = product.querySelector('img[src]');
+          if (imgEl) {
+            imageUrl = imgEl.getAttribute('src') || '';
+          }
+          
+          // Validation
+          if (title && title.length > 5 && link && link.includes('/mfp/')) {
+            items.push({ 
+              title: title, 
+              price: price || 'N/A', 
+              link: link, 
+              image: imageUrl 
+            });
+          }
+        } catch(e) {}
+      }
+    } else if (isBackMarket) {
+      // === BACK MARKET (with heavy debug) ===
+      var sel1 = document.querySelectorAll('div[data-qa="productCard"]').length;
+      var sel2 = document.querySelectorAll('[data-test="product-card"]').length;
+      var sel3 = document.querySelectorAll('[class*="productCard"]').length;
+      var sel4 = document.querySelectorAll('[class*="ProductCard"]').length;
+      var sel5 = document.querySelectorAll('a[href*="/p/"]').length;
+      var sel6 = document.querySelectorAll('img[data-test="product-card-image"]').length;
+      var sel7 = document.querySelectorAll('[class*="product"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      
+      debugInfo = 'BM_SELECTORS: data-qa-productCard=' + sel1 + ' | test-product-card=' + sel2 + ' | cls-productCard=' + sel3 + ' | cls-ProductCard=' + sel4 + ' | a-href-p=' + sel5 + ' | test-img=' + sel6 + ' | cls-product=' + sel7 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      // Strategy 1: Try main selector
+      var products = document.querySelectorAll('div[data-qa="productCard"]');
+      
+      if (products.length > 0) {
+        debugInfo += ' | Strategy1: productCard=' + products.length;
+        for (var i = 0; i < products.length; i++) {
+          try {
+            var product = products[i];
+            var title = '';
+            var price = '';
+            var link = '';
+            var imageUrl = '';
+            
+            var titleEl = product.querySelector('span[data-test="product-title"]');
+            if (titleEl) title = titleEl.innerText.trim();
+            
+            var linkEl = product.querySelector('a[href*="/p/"]');
+            if (linkEl) {
+              var href = linkEl.getAttribute('href') || '';
+              link = href.startsWith('http') ? href : 'https://www.backmarket.fr' + href;
+            }
+            
+            var priceContainerEl = product.querySelector('div[data-qa="productCardPrice"]');
+            if (priceContainerEl) {
+              var priceBoldEl = priceContainerEl.querySelector('div.body-2-bold');
+              if (priceBoldEl) {
+                var priceText = priceBoldEl.innerText.trim();
+                price = priceText.split('\\n')[0] || priceText;
+              }
+            }
+            
+            var imgEl = product.querySelector('img[data-test="product-card-image"]');
+            if (imgEl) imageUrl = imgEl.getAttribute('src') || '';
+            
+            if (title && title.length > 3 && link) {
+              items.push({ title: title, price: price || 'N/A', link: link, image: imageUrl });
+            }
+          } catch(e) {}
+        }
+      }
+      
+      // Strategy 2: Fallback - use ALL links to /p/ pages
+      if (items.length === 0) {
+        var pLinks = document.querySelectorAll('a[href*="/p/"]');
+        debugInfo += ' | Strategy2: a-p-links=' + pLinks.length;
+        var seenLinks = {};
+        
+        for (var i = 0; i < pLinks.length; i++) {
+          try {
+            var a = pLinks[i];
+            var href = a.getAttribute('href') || '';
+            if (seenLinks[href]) continue;
+            seenLinks[href] = true;
+            
+            var link = href.startsWith('http') ? href : 'https://www.backmarket.fr' + href;
+            
+            // Get title from link text or children
+            var title = '';
+            var spans = a.querySelectorAll('span, h2, h3, p');
+            for (var s = 0; s < spans.length; s++) {
+              var txt = spans[s].innerText ? spans[s].innerText.trim() : '';
+              if (txt.length > 5 && txt.length < 200) { title = txt; break; }
+            }
+            if (!title) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+            
+            // Get image from link or nearby
+            var imgEl = a.querySelector('img');
+            var imageUrl = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '') : '';
+            
+            // Get price: look in parent containers
+            var price = '';
+            var parentEl = a.parentElement;
+            for (var up = 0; up < 5 && parentEl; up++) {
+              var allText = parentEl.innerText || '';
+              var priceMatch = allText.match(/(\\d+[.,]\\d{2})\\s*€/);
+              if (priceMatch) { price = priceMatch[0]; break; }
+              parentEl = parentEl.parentElement;
+            }
+            
+            if (title && title.length > 3 && link.includes('/p/')) {
+              items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+            }
+          } catch(e) {}
+        }
+      }
+      
+      // Strategy 3: Last resort - grab ALL images and nearby links
+      if (items.length === 0) {
+        var allPageImgs = document.querySelectorAll('img[src*="back"], img[src*="cdn"], img[loading="lazy"]');
+        debugInfo += ' | Strategy3: lazy-imgs=' + allPageImgs.length;
+        
+        for (var i = 0; i < Math.min(allPageImgs.length, 30); i++) {
+          try {
+            var img = allPageImgs[i];
+            var imageUrl = img.getAttribute('src') || '';
+            if (imageUrl.length < 20) continue;
+            
+            // Find closest link
+            var closestA = img.closest('a');
+            if (!closestA) closestA = img.parentElement ? img.parentElement.closest('a') : null;
+            var link = closestA ? (closestA.getAttribute('href') || '') : '';
+            if (link && !link.startsWith('http')) link = 'https://www.backmarket.fr' + link;
+            
+            var title = img.getAttribute('alt') || '';
+            if (title && title.length > 3 && link) {
+              items.push({ title: title.substring(0, 150), price: 'N/A', link: link, image: imageUrl });
+            }
+          } catch(e) {}
+        }
+      }
+      
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+    } else if (isVestiaire) {
+      // === VESTIAIRE COLLECTIVE ===
+      var sel1 = document.querySelectorAll('[class*="productCard"], [class*="ProductCard"]').length;
+      var sel2 = document.querySelectorAll('a[href*="/product/"]').length;
+      var sel3 = document.querySelectorAll('[data-testid*="product"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'Vestiaire: cls-productCard=' + sel1 + ' | a-product=' + sel2 + ' | testid-product=' + sel3 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      // Strategy 1: product cards
+      var products = document.querySelectorAll('[class*="productCard"], [class*="ProductCard"], [data-testid*="product"]');
+      if (products.length === 0) products = document.querySelectorAll('a[href*="/product/"]');
+      debugInfo += ' | found=' + products.length;
+      
+      var seenLinks = {};
+      for (var i = 0; i < products.length; i++) {
+        try {
+          var el = products[i];
+          var a = el.tagName === 'A' ? el : el.querySelector('a[href*="/product/"]');
+          if (!a) a = el.querySelector('a[href]');
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : 'https://www.vestiairecollective.com' + href;
+          
+          var title = '';
+          var titleEl = el.querySelector('[class*="product_name"], [class*="brand"], h3, h2, span');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imgEl = el.querySelector('img');
+          var imageUrl = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '') : '';
+          
+          var price = '';
+          var priceEl = el.querySelector('[class*="price"], [class*="Price"]');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isSelency) {
+      // === SELENCY ===
+      var sel1 = document.querySelectorAll('a[href*="/p/"]').length;
+      var sel2 = document.querySelectorAll('img[src*="images.selency.com"], img[src*="selency.com"]').length;
+      var sel3 = document.querySelectorAll('[class*="product-card"], [class*="ProductCard"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'Selency: a-/p/=' + sel1 + ' | img-selency=' + sel2 + ' | cls-product-card=' + sel3 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo + ' | url=' + loc }));
+      
+      var productLinks = document.querySelectorAll('a[href*="/p/"]');
+      debugInfo += ' | found=' + productLinks.length;
+      
+      var seenLinks = {};
+      for (var i = 0; i < productLinks.length; i++) {
+        try {
+          var a = productLinks[i];
+          var href = a.getAttribute('href') || '';
+          if (!href) continue;
+          
+          var normalizedHref = href.split('?')[0];
+          if (seenLinks[normalizedHref]) continue;
+          seenLinks[normalizedHref] = true;
+          
+          var link = normalizedHref.startsWith('http') ? normalizedHref : 'https://www.selency.fr' + normalizedHref;
+          if (!link.includes('/p/')) continue;
+          
+          var title = a.innerText ? a.innerText.trim() : '';
+          if (!title || title.length < 4) {
+            var titleEl = a.querySelector('h2, h3, [class*="title"], [class*="name"], span, p');
+            if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          }
+          if (!title || title.length < 4) {
+            var aria = a.getAttribute('aria-label') || '';
+            if (aria) title = aria.trim();
+          }
+          
+          var imageUrl = '';
+          var imgEl = a.querySelector('img');
+          if (!imgEl) {
+            var card = a.closest('article, li, [class*="product"], [class*="card"], [class*="item"]');
+            if (card) imgEl = card.querySelector('img');
+          }
+          if (imgEl) {
+            imageUrl = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || imgEl.getAttribute('srcset') || '';
+            if (imageUrl && imageUrl.indexOf(' ') > 0) imageUrl = imageUrl.split(' ')[0];
+          }
+          
+          var price = '';
+          var contextEl = a.closest('article, li, [class*="product"], [class*="card"], [class*="item"]') || a.parentElement;
+          if (contextEl) {
+            var contextText = contextEl.innerText || '';
+            var priceMatch = contextText.match(/(\d[\d\s\u202F]*[.,]?\d*)\s*€/);
+            if (priceMatch) price = priceMatch[0].trim();
+          }
+          
+          if (title && title.length > 3) {
+            items.push({ title: title.substring(0, 180), price: price || 'N/A', link: link, image: imageUrl || '' });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isAutoScout) {
+      // === AUTOSCOUT24 ===
+      var sel1 = document.querySelectorAll('article[data-testid="list-item"], article.list-page-item').length;
+      var sel2 = document.querySelectorAll('a[data-anchor-overlay="true"], a[href*="/offres/"]').length;
+      var sel3 = document.querySelectorAll('img[data-testid="list-item-image"], img.ListItemImage_image__syCVC').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'AutoScout24: list-items=' + sel1 + ' | overlay-links=' + sel2 + ' | list-images=' + sel3 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var listings = document.querySelectorAll('article[data-testid="list-item"], article.list-page-item');
+      debugInfo += ' | found=' + listings.length;
+
+      var seenLinks = {};
+      for (var i = 0; i < listings.length; i++) {
+        try {
+          var el = listings[i];
+          var a = el.querySelector('a[data-anchor-overlay="true"]');
+          if (!a) a = el.querySelector('a.ListItemTitle_anchor__4TrfR[href]');
+          if (!a) a = el.querySelector('a[href*="/offres/"]');
+          if (!a) a = el.querySelector('a[href]');
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href) continue;
+          var qIdx = href.indexOf('?');
+          if (qIdx > 0) href = href.substring(0, qIdx);
+          var link = href.startsWith('http') ? href : 'https://www.autoscout24.fr' + href;
+          if (link.indexOf('/offres/') < 0 && link.indexOf('/offers/') < 0 && link.indexOf('/annonces/') < 0) continue;
+          if (seenLinks[link]) continue;
+          seenLinks[link] = true;
+          
+          var title = '';
+          var titleEl = el.querySelector('.ListItemTitle_title__sLi_x');
+          var subtitleEl = el.querySelector('.ListItemTitle_subtitle__V_ao6');
+          if (!titleEl) titleEl = el.querySelector('h2, h3, [class*="title"], [class*="Title"], [data-testid*="title"]');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (subtitleEl && subtitleEl.innerText) {
+            title = (title ? title + ' ' : '') + subtitleEl.innerText.trim();
+          }
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imageUrl = '';
+          var imgEl = el.querySelector('img[data-testid="list-item-image"]');
+          if (!imgEl) imgEl = el.querySelector('img.ListItemImage_image__syCVC');
+          if (!imgEl) imgEl = el.querySelector('img');
+          if (imgEl) {
+            imageUrl = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || imgEl.getAttribute('srcset') || '';
+            if (imageUrl && imageUrl.indexOf(' ') > 0) imageUrl = imageUrl.split(' ')[0];
+          }
+          
+          var price = '';
+          var priceEl = el.querySelector('[data-testid="regular-price"]');
+          if (!priceEl) priceEl = el.querySelector('[class*="CurrentPrice"], [class*="price"], [class*="Price"]');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          if (!price) {
+            var txt = el.innerText || '';
+            var m = txt.match(/(\d[\d\s\u202F]*[.,]?\d*)\s*€/);
+            if (m) price = m[0];
+          }
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+
+      // Fallback: parse all offer links when card selector misses
+      if (items.length === 0) {
+        var allAnchors = document.querySelectorAll('a[href*="/offres/"], a[href*="/offers/"], a[href*="/annonces/"]');
+        debugInfo += ' | fallbackOfferLinks=' + allAnchors.length;
+        for (var j = 0; j < allAnchors.length; j++) {
+          try {
+            var a2 = allAnchors[j];
+            var href2 = a2.getAttribute('href') || '';
+            if (!href2) continue;
+            var qIdx2 = href2.indexOf('?');
+            if (qIdx2 > 0) href2 = href2.substring(0, qIdx2);
+            var link2 = href2.startsWith('http') ? href2 : 'https://www.autoscout24.fr' + href2;
+            if (seenLinks[link2]) continue;
+            
+            var card = a2.closest('article[data-testid="list-item"], article.list-page-item, article, li') || a2.parentElement;
+            var title2 = '';
+            if (card) {
+              var t2 = card.querySelector('.ListItemTitle_title__sLi_x, h2, h3, [class*="title"], [class*="Title"]');
+              if (t2) title2 = t2.innerText ? t2.innerText.trim() : '';
+            }
+            if (!title2) title2 = a2.innerText ? a2.innerText.trim().substring(0, 120) : '';
+
+            var image2 = '';
+            var i2 = a2.querySelector('img[data-testid="list-item-image"], img');
+            if (!i2 && card) i2 = card.querySelector('img');
+            if (i2) {
+              image2 = i2.getAttribute('src') || i2.getAttribute('data-src') || i2.getAttribute('srcset') || '';
+              if (image2 && image2.indexOf(' ') > 0) image2 = image2.split(' ')[0];
+            }
+
+            var price2 = '';
+            if (card) {
+              var p2 = card.querySelector('[data-testid="regular-price"], [class*="CurrentPrice"], [class*="price"], [class*="Price"]');
+              if (p2) price2 = p2.innerText ? p2.innerText.trim() : '';
+              if (!price2) {
+                var txt2 = card.innerText || '';
+                var m2 = txt2.match(/(\d[\d\s\u202F]*[.,]?\d*)\s*€/);
+                if (m2) price2 = m2[0];
+              }
+            }
+
+            if (title2 && title2.length > 3) {
+              seenLinks[link2] = true;
+              items.push({ title: title2.substring(0, 150), price: price2 || 'N/A', link: link2, image: image2 || '' });
+            }
+          } catch(e) {}
+        }
+      }
+
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isKleinanzeigen) {
+      // === KLEINANZEIGEN ===
+      var sel1 = document.querySelectorAll('[class*="aditem"], article.aditem').length;
+      var sel2 = document.querySelectorAll('a[href*="/s-anzeige/"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'Kleinanzeigen: aditem=' + sel1 + ' | a-anzeige=' + sel2 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var ads = document.querySelectorAll('article.aditem, li.ad-listitem article');
+      if (ads.length === 0) ads = document.querySelectorAll('[data-href*="/s-anzeige/"], a[href*="/s-anzeige/"]');
+      debugInfo += ' | found=' + ads.length;
+      
+      var seenLinks = {};
+      var imgFoundCount = 0;
+      for (var i = 0; i < ads.length; i++) {
+        try {
+          var el = ads[i];
+          var article = el.tagName === 'ARTICLE' ? el : el.closest('article.aditem') || el;
+
+          var a = article.querySelector('a[href*="/s-anzeige/"]');
+          if (!a && article.tagName === 'A') a = article;
+          if (!a) a = article.querySelector('a[href]');
+
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href && article.getAttribute) href = article.getAttribute('data-href') || '';
+          if (!href || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : 'https://www.kleinanzeigen.de' + href;
+          
+          var title = '';
+          var titleEl = article.querySelector('h2, h3, [class*="title"], [class*="text-module-begin"], a.ellipsis');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imageUrl = '';
+          var imgEl = article.querySelector('div.aditem-image img, .srpimagebox img, img[src*="img.kleinanzeigen.de"], img[srcset*="img.kleinanzeigen.de"], img');
+          if (imgEl) {
+            imageUrl = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+            if (!imageUrl) {
+              var srcset = imgEl.getAttribute('srcset') || '';
+              if (srcset) {
+                imageUrl = srcset.split(',')[0].trim().split(' ')[0];
+              }
+            }
+          }
+
+          // Fallback JSON-LD image url in aditem-image block
+          if (!imageUrl) {
+            var jsonLdScripts = article.querySelectorAll('script[type="application/ld+json"]');
+            for (var jl = 0; jl < jsonLdScripts.length; jl++) {
+              try {
+                var raw = jsonLdScripts[jl].textContent || '';
+                if (!raw) continue;
+                var parsed = JSON.parse(raw);
+                var contentUrl = parsed && parsed.contentUrl ? parsed.contentUrl : '';
+                if (contentUrl && contentUrl.indexOf('http') === 0) {
+                  imageUrl = contentUrl;
+                  break;
+                }
+              } catch(e) {}
+            }
+          }
+          if (imageUrl) imgFoundCount++;
+          
+          var price = '';
+          var priceEl = article.querySelector('[class*="price"], [class*="Price"], .aditem-main--middle--price-shipping--price');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | imgFound=' + imgFoundCount + ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isAgorastore) {
+      // === AGORASTORE ===
+      var sel1 = document.querySelectorAll('a.article-link, .container-card a[href*="/materiel-occasion/"], article.new-article').length;
+      var sel2 = document.querySelectorAll('a[href*="/materiel-occasion/"]').length;
+      var sel3 = document.querySelectorAll('img.thumbnail-img, .thumbnail img[src]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'Agorastore: article-link=' + sel1 + ' | a-materiel=' + sel2 + ' | thumbnail-img=' + sel3 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var products = document.querySelectorAll('a.article-link[href], .container-card a[href*="/materiel-occasion/"]');
+      if (products.length === 0) products = document.querySelectorAll('a[href*="/materiel-occasion/"]');
+      debugInfo += ' | found=' + products.length;
+      
+      var seenLinks = {};
+      var imgFoundCount = 0;
+      for (var i = 0; i < products.length; i++) {
+        try {
+          var el = products[i];
+          var a = el.tagName === 'A' ? el : el.querySelector('a[href*="/materiel-occasion/"]');
+          if (!a) a = el.querySelector('a[href]');
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : 'https://www.agorastore.fr' + href;
+          if (link.indexOf('/materiel-occasion/') < 0) continue;
+          
+          var title = '';
+          var card = a ? (a.querySelector('article.new-article') || a.closest('.container-card') || a.parentElement) : el;
+          var titleEl = (card && card.querySelector) ? card.querySelector('h3.item-title, h2.item-title, .item-title, h2, h3, h4, [class*="title"], [class*="name"]') : null;
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imageUrl = '';
+          var imgEl = null;
+          if (card && card.querySelector) {
+            imgEl = card.querySelector('img.thumbnail-img, .thumbnail img[src], img[srcset]');
+          }
+          if (!imgEl && a) {
+            imgEl = a.querySelector('img.thumbnail-img, .thumbnail img[src], img[srcset], img[src]');
+          }
+          if (imgEl) {
+            imageUrl = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+            if (!imageUrl) {
+              var srcset = imgEl.getAttribute('srcset') || '';
+              if (srcset) imageUrl = srcset.split(',')[0].trim().split(' ')[0];
+            }
+          }
+          if (imageUrl) imgFoundCount++;
+          
+          var price = '';
+          var priceEl = (card && card.querySelector) ? card.querySelector('.text-h6, [class*="price"], [class*="Price"], .font-weight-bold.text-h6') : null;
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          if (!price && card) {
+            var txt = card.innerText || '';
+            var m = txt.match(/(\d[\d\s\u202F]*[.,]?\d*)\s*€/);
+            if (m) price = m[0];
+          }
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | imgFound=' + imgFoundCount + ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isLabelEmmaus) {
+      // === LABEL EMMAÜS ===
+      var sel1 = document.querySelectorAll('.product-card.catalogue-card, .product-card, article.new-article').length;
+      var sel2 = document.querySelectorAll('a.js_gtmonclick[href], a.article-link[href], a[href*="/fr/"][href*="-"]').length;
+      var sel3 = document.querySelectorAll('img.thumbnail-img, img.solo-img, .image-wrapper img').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'LabelEmmaus: product-card=' + sel1 + ' | a-product-like=' + sel2 + ' | thumb-img=' + sel3 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var products = document.querySelectorAll('.product-card.catalogue-card, .product-card');
+      if (products.length === 0) products = document.querySelectorAll('article.new-article, .container-card');
+      debugInfo += ' | found=' + products.length;
+      
+      var seenLinks = {};
+      var imgFoundCount = 0;
+      for (var i = 0; i < products.length; i++) {
+        try {
+          var el = products[i];
+          var a = el.querySelector('a.js_gtmonclick[href], a.article-link[href]');
+          if (!a) a = el.querySelector('a[href*="/fr/"]');
+          if (!a && el.tagName === 'A') a = el;
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href) continue;
+
+          if (
+            href.indexOf('/nos-boutiques/') >= 0 ||
+            href.indexOf('/catalogue/?') >= 0 ||
+            href.indexOf('/commander/') >= 0 ||
+            href.indexOf('/ajax/') >= 0
+          ) {
+            continue;
+          }
+
+          var cleanHref = href.split('?')[0];
+          var link = cleanHref.startsWith('http') ? cleanHref : 'https://www.label-emmaus.co' + cleanHref;
+          if (seenLinks[link]) continue;
+          seenLinks[link] = true;
+          
+          var title = '';
+          var titleEl = el.querySelector('.product-title, .item-title, h2, h3, h4, [class*="title"], [class*="name"]');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imageUrl = '';
+          var imgEl = el.querySelector('img.thumbnail-img, img.solo-img, .image-wrapper img, img[src], img[srcset]');
+          if (imgEl) {
+            imageUrl = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+            if (!imageUrl) {
+              var srcset = imgEl.getAttribute('srcset') || '';
+              if (srcset) imageUrl = srcset.split(',')[0].trim().split(' ')[0];
+            }
+            if (imageUrl && imageUrl.startsWith('/')) {
+              imageUrl = 'https://www.label-emmaus.co' + imageUrl;
+            }
+          }
+          if (imageUrl) imgFoundCount++;
+          
+          var price = '';
+          var priceEl = el.querySelector('.product-price-default-color, .product-price-wrapper .h2, [class*="product-price"], [class*="price"], [class*="Price"]');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          if (!price) {
+            var txt = el.innerText || '';
+            var m = txt.match(/(\d[\d\s\u202F]*[.,]?\d*)\s*€/);
+            if (m) price = m[0];
+          }
+          
+          if (title && title.length > 3 && link && link.indexOf('/fr/') >= 0) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | imgFound=' + imgFoundCount + ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isZenMarket) {
+      // === ZENMARKET / YAHOO JP ===
+      var sel1 = document.querySelectorAll('[class*="item-card"], [class*="ItemCard"]').length;
+      var sel2 = document.querySelectorAll('a[href*="/item/"], a[href*="/itempage/"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'ZenMarket: item-card=' + sel1 + ' | a-item=' + sel2 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var products = document.querySelectorAll('[class*="item-card"], [class*="ItemCard"]');
+      if (products.length === 0) products = document.querySelectorAll('a[href*="/item/"], a[href*="/itempage/"]');
+      debugInfo += ' | found=' + products.length;
+      
+      var seenLinks = {};
+      for (var i = 0; i < products.length; i++) {
+        try {
+          var el = products[i];
+          var a = el.tagName === 'A' ? el : el.querySelector('a[href]');
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : 'https://zenmarket.jp' + href;
+          
+          var title = '';
+          var titleEl = el.querySelector('h2, h3, h4, [class*="title"], [class*="name"], span, p');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imgEl = el.querySelector('img');
+          var imageUrl = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '') : '';
+          
+          var price = '';
+          var priceEl = el.querySelector('[class*="price"], [class*="Price"]');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isStocklear) {
+      // === STOCKLEAR ===
+      var sel1 = document.querySelectorAll('[class*="product-card"], [class*="lot-card"]').length;
+      var sel2 = document.querySelectorAll('a[href*="/lot/"], a[href*="/product/"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'Stocklear: product-card=' + sel1 + ' | a-lot=' + sel2 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var products = document.querySelectorAll('[class*="product-card"], [class*="lot-card"]');
+      if (products.length === 0) products = document.querySelectorAll('a[href*="/lot/"], a[href*="/product/"]');
+      debugInfo += ' | found=' + products.length;
+      
+      var seenLinks = {};
+      for (var i = 0; i < products.length; i++) {
+        try {
+          var el = products[i];
+          var a = el.tagName === 'A' ? el : el.querySelector('a[href]');
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : 'https://www.stocklear.fr' + href;
+          
+          var title = '';
+          var titleEl = el.querySelector('h2, h3, h4, [class*="title"], [class*="name"]');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imgEl = el.querySelector('img');
+          var imageUrl = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '') : '';
+          
+          var price = '';
+          var priceEl = el.querySelector('[class*="price"], [class*="Price"]');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isCatawiki) {
+      // === CATAWIKI ===
+      var sel1 = document.querySelectorAll('[class*="lot-card"], [class*="LotCard"]').length;
+      var sel2 = document.querySelectorAll('a[href*="/l/"], a[href*="/lots/"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'Catawiki: lot-card=' + sel1 + ' | a-lots=' + sel2 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var lots = document.querySelectorAll('[class*="lot-card"], [class*="LotCard"]');
+      if (lots.length === 0) lots = document.querySelectorAll('a[href*="/l/"], a[href*="/lots/"]');
+      debugInfo += ' | found=' + lots.length;
+      
+      var seenLinks = {};
+      for (var i = 0; i < lots.length; i++) {
+        try {
+          var el = lots[i];
+          var a = el.tagName === 'A' ? el : el.querySelector('a[href*="/l/"], a[href*="/lots/"]');
+          if (!a) a = el.querySelector('a[href]');
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : 'https://www.catawiki.com' + href;
+          
+          var title = '';
+          var titleEl = el.querySelector('h3, h2, [class*="title"], [class*="lot-title"]');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imgEl = el.querySelector('img');
+          var imageUrl = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '') : '';
+          
+          var price = '';
+          var priceEl = el.querySelector('[class*="price"], [class*="bid"]');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isWallapop) {
+      // === WALLAPOP ===
+      var sel1 = document.querySelectorAll('[class*="ItemCard"], tsl-item-card').length;
+      var sel2 = document.querySelectorAll('a[href*="/item/"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'Wallapop: ItemCard=' + sel1 + ' | a-item=' + sel2 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var cards = document.querySelectorAll('[class*="ItemCard"], tsl-item-card');
+      if (cards.length === 0) cards = document.querySelectorAll('a[href*="/item/"]');
+      debugInfo += ' | found=' + cards.length;
+      
+      var seenLinks = {};
+      for (var i = 0; i < cards.length; i++) {
+        try {
+          var el = cards[i];
+          var a = el.tagName === 'A' ? el : el.querySelector('a[href*="/item/"]');
+          if (!a) a = el.querySelector('a[href]');
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : 'https://es.wallapop.com' + href;
+          
+          var title = '';
+          var titleEl = el.querySelector('h2, h3, [class*="title"], [class*="ItemCard__title"]');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imgEl = el.querySelector('img');
+          var imageUrl = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '') : '';
+          
+          var price = '';
+          var priceEl = el.querySelector('[class*="price"], [class*="Price"], [class*="ItemCard__price"]');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isTroostwijk) {
+      // === TROOSTWIJK ===
+      var sel1 = document.querySelectorAll('[class*="lot-card"], [class*="LotCard"]').length;
+      var sel2 = document.querySelectorAll('a[href*="/lot/"], a[href*="/lots/"]').length;
+      var allDivs = document.querySelectorAll('div').length;
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      debugInfo = 'Troostwijk: lot-card=' + sel1 + ' | a-lot=' + sel2 + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      var lots = document.querySelectorAll('[class*="lot-card"], [class*="LotCard"]');
+      if (lots.length === 0) lots = document.querySelectorAll('a[href*="/lot/"], a[href*="/lots/"]');
+      debugInfo += ' | found=' + lots.length;
+      
+      var seenLinks = {};
+      for (var i = 0; i < lots.length; i++) {
+        try {
+          var el = lots[i];
+          var a = el.tagName === 'A' ? el : el.querySelector('a[href*="/lot/"]');
+          if (!a) a = el.querySelector('a[href]');
+          var href = a ? (a.getAttribute('href') || '') : '';
+          if (!href || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : 'https://www.troostwijkauctions.com' + href;
+          
+          var title = '';
+          var titleEl = el.querySelector('h2, h3, h4, [class*="title"], [class*="lot-name"]');
+          if (titleEl) title = titleEl.innerText ? titleEl.innerText.trim() : '';
+          if (!title && a) title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          
+          var imgEl = el.querySelector('img');
+          var imageUrl = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '') : '';
+          
+          var price = '';
+          var priceEl = el.querySelector('[class*="price"], [class*="bid"]');
+          if (priceEl) price = priceEl.innerText ? priceEl.innerText.trim() : '';
+          
+          if (title && title.length > 3 && link) {
+            items.push({ title: title.substring(0, 150), price: price || 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
+
+    } else if (isLeboncoin) {
       // === LEBONCOIN ===
       var selectors = [
         '[data-qa-id="aditem_container"]',
@@ -254,6 +1130,7 @@ const CONTENT_EXTRACT_JS = `
       ];
       var cards = document.querySelectorAll(selectors.join(', '));
       debugInfo = 'Leboncoin: ' + cards.length + ' cards';
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: 'LEBONCOIN: cards=' + cards.length + ' | url=' + loc }));
       
       if (cards.length === 0) {
         cards = document.querySelectorAll('[class*="card"], [class*="item"]');
@@ -310,6 +1187,37 @@ const CONTENT_EXTRACT_JS = `
           }
         } catch(e) {}
       }
+    } else {
+      // === SITE NON RECONNU (fallback générique) ===
+      var allAs = document.querySelectorAll('a').length;
+      var allImgs = document.querySelectorAll('img').length;
+      var allDivs = document.querySelectorAll('div').length;
+      debugInfo = 'UNKNOWN_SITE: url=' + loc + ' | divs=' + allDivs + ' | as=' + allAs + ' | imgs=' + allImgs;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'extractDebug', message: debugInfo }));
+      
+      // Try generic: grab all links with images nearby
+      var allLinks = document.querySelectorAll('a[href]');
+      var seenLinks = {};
+      for (var i = 0; i < Math.min(allLinks.length, 50); i++) {
+        try {
+          var a = allLinks[i];
+          var href = a.getAttribute('href') || '';
+          if (href.length < 5 || href === '#' || seenLinks[href]) continue;
+          seenLinks[href] = true;
+          var link = href.startsWith('http') ? href : loc.split('/').slice(0,3).join('/') + href;
+          
+          var imgEl = a.querySelector('img');
+          var imageUrl = imgEl ? (imgEl.getAttribute('src') || '') : '';
+          
+          var title = a.innerText ? a.innerText.trim().substring(0, 100) : '';
+          if (!title && imgEl) title = imgEl.getAttribute('alt') || '';
+          
+          if (title && title.length > 5 && imageUrl) {
+            items.push({ title: title, price: 'N/A', link: link, image: imageUrl });
+          }
+        } catch(e) {}
+      }
+      debugInfo += ' | FINAL_ITEMS=' + items.length;
     }
     
     debugInfo += ' | Items: ' + items.length;
@@ -604,7 +1512,7 @@ export default function BrowseScreen() {
         // Finaliser immédiatement
         setShowResults(true);
         overlayFade.setValue(0);
-        stopScan(name ?? 'Shopping', extractedContentRef.current, [...screenshotsRef.current]);
+        stopScan(name ?? 'Shopping', extractedContentRef.current, [...screenshotsRef.current], [...extractedItemsRef.current]);
       }, SCAN_DURATION_LIMIT * 1000);
       return () => clearTimeout(hardStopTimeout);
     }
@@ -765,6 +1673,12 @@ export default function BrowseScreen() {
   const handleWebViewMessage = useCallback((event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
+
+      if (data.type === 'extractDebug') {
+        console.log(`[Browse] [EXTRACT_DEBUG] ${data.message}`);
+        if (data.url) console.log(`[Browse] [EXTRACT_DEBUG] URL: ${data.url}`);
+        return;
+      }
 
       if (data.type === 'content' || data.items) {
         console.log(`[Browse] Extracted: ${data.items?.length ?? 0} items from ${data.pageTitle}`);
