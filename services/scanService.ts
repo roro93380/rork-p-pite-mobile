@@ -2,6 +2,15 @@ import { Pepite } from '@/types';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
+/** Generate a proper UUID v4 */
+function uuid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 const UNSPLASH_IMAGES: Record<string, string> = {
   watch: 'https://images.unsplash.com/photo-1524592094714-0f0654e20314?w=600&h=600&fit=crop',
   handbag: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&h=600&fit=crop',
@@ -348,7 +357,7 @@ function parseGeminiResponse(data: GeminiResponse, merchantName: string): Pepite
       : getImageForQuery(p.imageKeyword ?? 'default');
 
     return {
-      id: `gemini_${Date.now()}_${index}`,
+      id: uuid(),
       title: p.title ?? 'Produit détecté',
       image: imageUrl,
       sellerPrice: p.sellerPrice ?? 0,
@@ -588,7 +597,7 @@ export function generateFallbackPepites(merchantName: string): Pepite[] {
   const now = new Date();
   return fallbackItems.map((item, index) => ({
     ...item,
-    id: `fallback_${Date.now()}_${index}`,
+    id: uuid(),
     scanDate: new Date(now.getTime() - index * 60000).toISOString(),
     isFavorite: false,
     isTrashed: false,
