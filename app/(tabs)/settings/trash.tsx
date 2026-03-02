@@ -16,7 +16,29 @@ import EmptyState from '@/components/EmptyState';
 import { usePepite } from '@/providers/PepiteProvider';
 
 export default function TrashScreen() {
-  const { trashedPepites, restorePepite, deletePepite } = usePepite();
+  const { trashedPepites, restorePepite, deletePepite, emptyTrash } = usePepite();
+
+  const handleEmptyTrash = useCallback(() => {
+    Alert.alert(
+      'Vider la corbeille',
+      `Êtes-vous sûr de vouloir supprimer définitivement ${trashedPepites.length} élément${trashedPepites.length > 1 ? 's' : ''} ? Cette action est irréversible.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Vider',
+          style: 'destructive',
+          onPress: () => {
+            if (Platform.OS !== 'web') {
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Success
+              );
+            }
+            emptyTrash();
+          },
+        },
+      ]
+    );
+  }, [trashedPepites.length, emptyTrash]);
 
   const handleRestore = useCallback(
     (id: string) => {
@@ -67,6 +89,15 @@ export default function TrashScreen() {
 
   return (
     <View style={styles.screen}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.emptyBtn}
+          onPress={handleEmptyTrash}
+        >
+          <Trash2 size={18} color={Colors.danger} />
+          <Text style={styles.emptyBtnText}>Vider la corbeille</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -111,6 +142,27 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  header: {
+    padding: 16,
+    paddingBottom: 8,
+  },
+  emptyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.surfaceLight,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  emptyBtnText: {
+    color: Colors.danger,
+    fontSize: 15,
+    fontWeight: '600' as const,
   },
   content: {
     padding: 16,

@@ -147,6 +147,14 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     });
   }, []);
 
+  const emptyTrash = useCallback(() => {
+    setPepites((prev) => {
+      const updated = prev.filter((p) => !p.isTrashed);
+      savePepitesMutation.mutate(updated);
+      return updated;
+    });
+  }, []);
+
   const updateSettings = useCallback((partial: Partial<AppSettings>) => {
     const newSettings = { ...settings, ...partial };
     setSettings(newSettings);
@@ -485,6 +493,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     trashPepite,
     restorePepite,
     deletePepite,
+    emptyTrash,
     addPepites,
     updateSettings,
     completeOnboarding,
