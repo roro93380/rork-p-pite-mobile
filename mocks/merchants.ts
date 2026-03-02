@@ -155,9 +155,9 @@ export const MERCHANTS: Merchant[] = [
   },
   {
     id: 'perfumes',
-    name: 'Perfumes.com',
+    name: "Perfume's Club",
     logo: '🌸',
-    url: 'https://www.perfumes.com',
+    url: 'https://www.perfumesclub.fr',
     color: '#AD1457',
     category: 'Beauté',
     description: 'Parfums et cosmétiques en ligne',
@@ -251,15 +251,6 @@ export const MERCHANTS: Merchant[] = [
     color: '#FF5A00',
     category: 'Marketplace',
     description: 'Marketplace leader en Pologne',
-  },
-  {
-    id: 'dhgate',
-    name: 'DHgate',
-    logo: '🏭',
-    url: 'https://www.dhgate.com',
-    color: '#C8202F',
-    category: 'Marketplace',
-    description: 'Grossiste en ligne Chine',
   },
   {
     id: 'taobao',

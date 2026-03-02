@@ -258,6 +258,55 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
               score = Math.max(score, 95);
             }
             
+            // Score 4 : Prix matching - si le prix correspond, bonus
+            if (pepite.sellerPrice && item.price && item.price !== 'N/A') {
+              const itemPriceStr = item.price.replace(/[^\d.,]/g, '').replace(',', '.');
+              const itemPriceNum = parseFloat(itemPriceStr);
+              if (!isNaN(itemPriceNum) && itemPriceNum > 0) {
+                const priceDiff = Math.abs(itemPriceNum - pepite.sellerPrice) / pepite.sellerPrice;
+                if (priceDiff < 0.05) {
+                  score += 20;
+                } else if (priceDiff < 0.15) {
+                  score += 10;
+                }
+              }
+            }
+            
+            // Score 5 : Description-based matching - quand le titre Gemini est court (ex: juste une marque "Frye"),
+            // utiliser les mots-clés de la description Gemini pour matcher
+            if (score < 50 && pepite.description && pepite.description.length > 10) {
+              const descWords = getWords(pepite.description).filter((w: string) => w.length > 3);
+              // Filtrer les mots trop communs
+              const stopWords = new Set(['dans', 'pour', 'avec', 'plus', 'tres', 'cette', 'sont', 'etre', 'avoir', 'fait', 'bien', 'tout',
+                'prix', 'marque', 'paire', 'excellent', 'qualite', 'revente', 'generalement', 'entre', 'environ', 'marge', 'profit',
+                'potential', 'potentiel', 'etat', 'bonne', 'belle', 'from', 'with', 'that', 'this', 'they', 'will', 'been', 'have',
+                'brand', 'price', 'good', 'great', 'sell', 'rare', 'very', 'high', 'condition', 'market', 'often', 'usually']);
+              const significantDescWords = descWords.filter((w: string) => !stopWords.has(w));
+              if (significantDescWords.length > 0) {
+                let descMatched = 0;
+                for (const dw of significantDescWords) {
+                  if (itemWords.some((iw: string) => iw === dw || iw.includes(dw) || dw.includes(iw))) {
+                    descMatched++;
+                  }
+                }
+                const descRatio = descMatched / Math.min(significantDescWords.length, 8);
+                // Cap at 70 to leave room for price bonus to push over threshold
+                const descScore = Math.min(descRatio * 100, 70);
+                score = Math.max(score, descScore);
+              }
+            }
+            
+            // Score 6 : Mot distinctif unique — un mot spécifique (≥6 chars) exact match = forte preuve
+            // Ex: "sunglasses" (10 chars) dans "Ray-Ban Aviator Sunglasses" matche "jellgdrew mode sunglasses unisex..."
+            if (score < 50) {
+              for (const pw of pepWords) {
+                if (pw.length >= 6 && itemWords.some((iw: string) => iw === pw)) {
+                  score = Math.max(score, 50);
+                  break;
+                }
+              }
+            }
+            
             if (score > bestScore) {
               bestScore = score;
               bestIdx = idx;
