@@ -78,7 +78,6 @@ export default function PremiumScreen() {
           title: '',
           headerStyle: { backgroundColor: Colors.background },
           headerTintColor: Colors.gold,
-          presentation: 'modal',
         }}
       />
 
