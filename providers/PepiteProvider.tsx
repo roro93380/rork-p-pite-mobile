@@ -6,6 +6,15 @@ import { Pepite, AppSettings, ScanSession } from '@/types';
 import { MOCK_PEPITES } from '@/mocks/pepites';
 import { analyzeWithGemini, analyzeWithGeminiVideo, generateFallbackPepites } from '@/services/scanService';
 import { setupNotifications, sendPepiteFoundNotification } from '@/services/notificationService';
+import { supabase } from '@/services/supabaseClient';
+import {
+  insertPepites as insertPepitesRemote,
+  updatePepiteStatus,
+  deletePepiteRemote,
+  emptyTrashRemote,
+  fetchAllPepites,
+} from '@/services/pepiteDbService';
+import { insertScanRecord, fetchAllScans } from '@/services/scanDbService';
 
 const STORAGE_KEYS = {
   PEPITES: 'pepite_items',
@@ -29,6 +38,13 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   const [lastScanResults, setLastScanResults] = useState<Pepite[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanSessions, setScanSessions] = useState<ScanSession[]>([]);
+  const [hasSynced, setHasSynced] = useState<boolean>(false);
+
+  /** Helper: get Supabase user id (null if not logged in) */
+  const getUserId = useCallback(async (): Promise<string | null> => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.user?.id ?? null;
+  }, []);
 
   useEffect(() => {
     setupNotifications().then((granted) => {
@@ -88,6 +104,132 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     }
   }, [settingsQuery.data]);
 
+  /* ── Initial sync: pull remote pepites + scans + profile on login ── */
+  useEffect(() => {
+    if (hasSynced) return;
+    const sync = async () => {
+      const session = (await supabase.auth.getSession()).data.session;
+      const uid = session?.user?.id;
+      if (!uid) return;
+      setHasSynced(true);
+
+      try {
+        // 1. Pull profile → sync API key & onboarding state
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('gemini_api_key, onboarding_completed')
+          .eq('id', uid)
+          .single();
+
+        if (profile) {
+          setSettings((prev) => {
+            const updates: Partial<AppSettings> = {};
+            // If remote has an API key and local doesn't, use remote
+            if (profile.gemini_api_key && !prev.geminiApiKey) {
+              updates.geminiApiKey = profile.gemini_api_key;
+            }
+            // If remote onboarding is done, mark local as done too
+            if (profile.onboarding_completed && !prev.hasCompletedOnboarding) {
+              updates.onboarding_completed = true;
+              updates.hasCompletedOnboarding = true;
+            }
+            if (Object.keys(updates).length === 0) return prev;
+            const merged = { ...prev, ...updates };
+            AsyncStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
+            return merged;
+          });
+        }
+
+        // 2. Pull remote pepites
+        const remotePepites = await fetchAllPepites(uid);
+        if (remotePepites.length > 0) {
+          setPepites((prev) => {
+            const localIds = new Set(prev.map((p) => p.id));
+            const newFromRemote = remotePepites.filter((rp) => !localIds.has(rp.id));
+            if (newFromRemote.length === 0) return prev;
+            const merged = [...prev, ...newFromRemote];
+            AsyncStorage.setItem(STORAGE_KEYS.PEPITES, JSON.stringify(merged));
+            return merged;
+          });
+        }
+
+        // 3. Pull remote scans
+        const remoteScans = await fetchAllScans(uid);
+        if (remoteScans.length > 0) {
+          setScanSessions((prev) => {
+            const localIds = new Set(prev.map((s) => s.id));
+            const newFromRemote = remoteScans.filter((rs) => !localIds.has(rs.id));
+            if (newFromRemote.length === 0) return prev;
+            const merged = [...prev, ...newFromRemote].sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+            );
+            AsyncStorage.setItem(STORAGE_KEYS.SCAN_SESSIONS, JSON.stringify(merged));
+            return merged;
+          });
+        }
+
+        // 4. Push local pepites that don't exist remotely
+        const remoteIds = new Set(remotePepites.map((p) => p.id));
+        const stored = await AsyncStorage.getItem(STORAGE_KEYS.PEPITES);
+        const localPepites: Pepite[] = stored ? JSON.parse(stored) : [];
+        const localOnly = localPepites.filter((p) => !remoteIds.has(p.id));
+        if (localOnly.length > 0) {
+          await insertPepitesRemote(localOnly, uid);
+        }
+
+        // 5. Push local API key to profile if remote is empty
+        if (!profile?.gemini_api_key && settings.geminiApiKey) {
+          await supabase
+            .from('profiles')
+            .update({ gemini_api_key: settings.geminiApiKey })
+            .eq('id', uid);
+        }
+
+        // 6. Pull unread notifications and show them locally
+        try {
+          const { data: notifications } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', uid)
+            .eq('read', false)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (notifications && notifications.length > 0 && settings.notificationsEnabled) {
+            const { Platform } = require('react-native');
+            const Notifications = require('expo-notifications');
+            for (const n of notifications) {
+              if (Platform.OS !== 'web') {
+                await Notifications.scheduleNotificationAsync({
+                  content: {
+                    title: n.title,
+                    body: n.message,
+                    data: { link: n.link },
+                    sound: 'default',
+                  },
+                  trigger: null,
+                });
+              }
+              // Mark as read
+              await supabase
+                .from('notifications')
+                .update({ read: true })
+                .eq('id', n.id);
+            }
+            console.log(`[PepiteProvider] Showed ${notifications.length} remote notifications`);
+          }
+        } catch (notifErr) {
+          console.warn('[PepiteProvider] Notification sync error:', notifErr);
+        }
+
+        console.log(`[PepiteProvider] Sync done: ${remotePepites.length} remote, ${localOnly.length} pushed`);
+      } catch (e) {
+        console.warn('[PepiteProvider] Sync error:', e);
+      }
+    };
+    sync();
+  }, [hasSynced]);
+
   const savePepitesMutation = useMutation({
     mutationFn: async (items: Pepite[]) => {
       await AsyncStorage.setItem(STORAGE_KEYS.PEPITES, JSON.stringify(items));
@@ -111,10 +253,16 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
   const toggleFavorite = useCallback((id: string) => {
     setPepites((prev) => {
+      const target = prev.find((p) => p.id === id);
       const updated = prev.map((p) =>
         p.id === id ? { ...p, isFavorite: !p.isFavorite } : p
       );
       savePepitesMutation.mutate(updated);
+      // Sync to Supabase
+      if (target) {
+        const newStatus = target.isFavorite ? 'new' : 'favorite';
+        updatePepiteStatus(id, newStatus as any);
+      }
       return updated;
     });
   }, []);
@@ -125,6 +273,8 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         p.id === id ? { ...p, isTrashed: true, isFavorite: false } : p
       );
       savePepitesMutation.mutate(updated);
+      // Sync to Supabase
+      updatePepiteStatus(id, 'dismissed');
       return updated;
     });
   }, []);
@@ -135,6 +285,8 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         p.id === id ? { ...p, isTrashed: false } : p
       );
       savePepitesMutation.mutate(updated);
+      // Sync to Supabase
+      updatePepiteStatus(id, 'new');
       return updated;
     });
   }, []);
@@ -143,6 +295,8 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     setPepites((prev) => {
       const updated = prev.filter((p) => p.id !== id);
       savePepitesMutation.mutate(updated);
+      // Sync to Supabase
+      deletePepiteRemote(id);
       return updated;
     });
   }, []);
@@ -151,9 +305,13 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     setPepites((prev) => {
       const updated = prev.filter((p) => !p.isTrashed);
       savePepitesMutation.mutate(updated);
+      // Sync to Supabase
+      getUserId().then((uid) => {
+        if (uid) emptyTrashRemote(uid);
+      });
       return updated;
     });
-  }, []);
+  }, [getUserId]);
 
   const updateSettings = useCallback((partial: Partial<AppSettings>) => {
     const newSettings = { ...settings, ...partial };
@@ -163,7 +321,13 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
   const completeOnboarding = useCallback(() => {
     updateSettings({ hasCompletedOnboarding: true });
-  }, [updateSettings]);
+    // Sync to Supabase profile
+    getUserId().then((uid) => {
+      if (uid) {
+        supabase.from('profiles').update({ onboarding_completed: true }).eq('id', uid);
+      }
+    });
+  }, [updateSettings, getUserId]);
 
   const addPepites = useCallback((newPepites: Pepite[]) => {
     setPepites((prev) => {
@@ -171,7 +335,11 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       savePepitesMutation.mutate(updated);
       return updated;
     });
-  }, []);
+    // Sync to Supabase (fire-and-forget)
+    getUserId().then((uid) => {
+      if (uid) insertPepitesRemote(newPepites, uid);
+    });
+  }, [getUserId]);
 
   const scanMutation = useMutation({
     mutationFn: async ({ merchantName, pageContent, screenshots, extractedItems }: { merchantName: string; pageContent: string; screenshots?: string[]; extractedItems?: Array<{title: string; link: string; image: string; price: string}> }) => {
@@ -377,6 +545,12 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         await AsyncStorage.setItem(STORAGE_KEYS.SCAN_SESSIONS, JSON.stringify(updated));
         setScanSessions(updated);
         queryClient.invalidateQueries({ queryKey: ['scan_sessions'] });
+
+        // Sync scan to Supabase
+        const uid = (await supabase.auth.getSession()).data.session?.user?.id;
+        if (uid) {
+          insertScanRecord(session, uid);
+        }
       } catch (e) {
         console.log('[PepiteProvider] Error saving scan session:', e);
       }

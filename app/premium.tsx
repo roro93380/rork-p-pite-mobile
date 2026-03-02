@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Crown, Check, Zap, Shield, Infinity } from 'lucide-react-native';
@@ -14,6 +15,8 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import LogoHeader from '@/components/LogoHeader';
 import GoldButton from '@/components/GoldButton';
+import { useAuth } from '@/contexts/AuthContext';
+import { startCheckout, openCustomerPortal, PlanId } from '@/services/stripeService';
 
 interface PlanFeature {
   label: string;
@@ -56,20 +59,56 @@ const plans: Plan[] = [
 
 export default function PremiumScreen() {
   const router = useRouter();
+  const { isPremium, profile, refreshProfile } = useAuth();
+  const [loading, setLoading] = useState(false);
 
-  const handleSubscribe = useCallback((planName: string) => {
+  const handleSubscribe = useCallback(async (planName: string) => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    Alert.alert(
-      'Abonnement',
-      `L'abonnement ${planName} sera disponible prochainement.`
-    );
-  }, []);
 
-  const handleRestore = useCallback(() => {
-    Alert.alert('Restauration', 'Aucun achat précédent trouvé.');
-  }, []);
+    const planId: PlanId = planName === 'GOLD' ? 'gold' : 'platinum';
+    setLoading(true);
+    const { success, error } = await startCheckout(planId);
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Erreur', error);
+      return;
+    }
+
+    // Le navigateur a été fermé → rafraîchir le profil pour vérifier le statut
+    await refreshProfile();
+    if (profile?.subscription_tier !== 'free') {
+      Alert.alert('Merci !', 'Votre abonnement est maintenant actif. 🎉');
+    }
+  }, [refreshProfile, profile]);
+
+  const handleRestore = useCallback(async () => {
+    setLoading(true);
+    await refreshProfile();
+    setLoading(false);
+
+    if (profile?.subscription_tier && profile.subscription_tier !== 'free') {
+      Alert.alert('Abonnement trouvé', `Votre abonnement ${profile.subscription_tier.toUpperCase()} est actif.`);
+    } else {
+      Alert.alert('Restauration', 'Aucun abonnement actif trouvé.');
+    }
+  }, [refreshProfile, profile]);
+
+  const handleManage = useCallback(async () => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setLoading(true);
+    const { error } = await openCustomerPortal();
+    setLoading(false);
+    if (error) {
+      Alert.alert('Erreur', error);
+    }
+    // Refresh profile after returning from portal
+    await refreshProfile();
+  }, [refreshProfile]);
 
   return (
     <View style={styles.screen}>
@@ -135,12 +174,26 @@ export default function PremiumScreen() {
         ))}
 
         <Text style={styles.secureText}>
-          Paiement sécurisé. Annulation facile.
+          Paiement sécurisé par Stripe. Annulation facile.
         </Text>
+
+        {isPremium && (
+          <TouchableOpacity onPress={handleManage} style={styles.restoreLink}>
+            <Text style={styles.manageText}>Gérer mon abonnement</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity onPress={handleRestore} style={styles.restoreLink}>
           <Text style={styles.restoreText}>Restaurer les achats</Text>
         </TouchableOpacity>
+
+        {loading && (
+          <ActivityIndicator
+            color={Colors.gold}
+            size="large"
+            style={{ marginTop: 16 }}
+          />
+        )}
       </ScrollView>
     </View>
   );
@@ -244,6 +297,12 @@ const styles = StyleSheet.create({
   restoreText: {
     color: Colors.textSecondary,
     fontSize: 14,
+    textDecorationLine: 'underline',
+  },
+  manageText: {
+    color: Colors.gold,
+    fontSize: 15,
+    fontWeight: '600',
     textDecorationLine: 'underline',
   },
 });

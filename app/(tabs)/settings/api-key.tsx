@@ -15,12 +15,14 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import GoldButton from '@/components/GoldButton';
 import { usePepite } from '@/providers/PepiteProvider';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function ApiKeyScreen() {
   const { settings, updateSettings } = usePepite();
+  const { updateProfile } = useAuth();
   const [apiKey, setApiKey] = useState<string>(settings.geminiApiKey);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (!apiKey.trim()) {
       Alert.alert('Erreur', 'Veuillez entrer une clé API valide.');
       return;
@@ -29,8 +31,10 @@ export default function ApiKeyScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
     updateSettings({ geminiApiKey: apiKey.trim() });
+    // Sync to Supabase profile
+    await updateProfile({ gemini_api_key: apiKey.trim() });
     Alert.alert('Succès', 'Votre clé API a été enregistrée.');
-  }, [apiKey, updateSettings]);
+  }, [apiKey, updateSettings, updateProfile]);
 
   const handleHelp = useCallback(() => {
     Linking.openURL('https://aistudio.google.com/app/apikey');
