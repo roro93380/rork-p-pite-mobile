@@ -140,14 +140,29 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
           });
         }
 
-        // 2. Pull remote pepites
+        // 2. Pull remote pepites — add new ones AND update statuses of existing ones
         const remotePepites = await fetchAllPepites(uid);
         if (remotePepites.length > 0) {
           setPepites((prev) => {
-            const localIds = new Set(prev.map((p) => p.id));
-            const newFromRemote = remotePepites.filter((rp) => !localIds.has(rp.id));
-            if (newFromRemote.length === 0) return prev;
-            const merged = [...prev, ...newFromRemote];
+            const localMap = new Map(prev.map((p) => [p.id, p]));
+            let changed = false;
+
+            // Update existing pepites with remote status
+            const updatedLocal = prev.map((lp) => {
+              const remote = remotePepites.find((rp) => rp.id === lp.id);
+              if (remote && (lp.isFavorite !== remote.isFavorite || lp.isTrashed !== remote.isTrashed)) {
+                changed = true;
+                return { ...lp, isFavorite: remote.isFavorite, isTrashed: remote.isTrashed };
+              }
+              return lp;
+            });
+
+            // Add new pepites from remote
+            const newFromRemote = remotePepites.filter((rp) => !localMap.has(rp.id));
+            if (newFromRemote.length > 0) changed = true;
+
+            if (!changed) return prev;
+            const merged = [...updatedLocal, ...newFromRemote];
             AsyncStorage.setItem(STORAGE_KEYS.PEPITES, JSON.stringify(merged));
             return merged;
           });
@@ -260,7 +275,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       savePepitesMutation.mutate(updated);
       // Sync to Supabase
       if (target) {
-        const newStatus = target.isFavorite ? 'new' : 'favorite';
+        const newStatus = target.isFavorite ? 'new' : 'VALIDATED';
         updatePepiteStatus(id, newStatus as any);
       }
       return updated;

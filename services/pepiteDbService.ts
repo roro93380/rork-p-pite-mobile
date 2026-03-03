@@ -50,7 +50,7 @@ export function toSupabasePepite(
 ): Omit<SupabasePepite, 'created_at'> {
   let status: SupabasePepite['status'] = 'new';
   if (p.isTrashed) status = 'dismissed';
-  else if (p.isFavorite) status = 'favorite';
+  else if (p.isFavorite) status = 'VALIDATED';
 
   return {
     id: p.id,
@@ -81,7 +81,7 @@ export function fromSupabasePepite(row: SupabasePepite): Pepite {
     category: '',
     description: row.description,
     scanDate: row.created_at,
-    isFavorite: row.status === 'favorite',
+    isFavorite: row.status === 'favorite' || row.status === 'VALIDATED',
     isTrashed: row.status === 'dismissed',
     adUrl: row.link,
     adImageUrl: row.image_url,

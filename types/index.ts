@@ -61,7 +61,7 @@ export interface SupabasePepite {
   image_url: string;
   link: string;
   description: string;
-  status: 'new' | 'favorite' | 'dismissed';
+  status: 'new' | 'favorite' | 'dismissed' | 'VALIDATED' | 'PEPITE' | 'CORRECT';
   created_at: string;
 }
 
