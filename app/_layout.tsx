@@ -9,6 +9,13 @@ import Colors from '@/constants/colors';
 import { PepiteProvider } from '@/providers/PepiteProvider';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 
+// Suppress console.log in production builds
+if (!__DEV__) {
+  console.log = () => {};
+  console.warn = () => {};
+  console.debug = () => {};
+}
+
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();

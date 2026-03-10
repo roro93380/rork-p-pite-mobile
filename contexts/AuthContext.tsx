@@ -46,7 +46,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (error) {
-      console.warn('[Auth] fetchProfile error:', error.message);
       return null;
     }
     return data as Profile;
@@ -148,7 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /* ── reset password ──────────── */
   const resetPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://pepite.io/reset-password',
+      redirectTo: 'https://app-pepite.web.app/auth/callback',
     });
     if (error) return { error: error.message };
     return { error: null };
