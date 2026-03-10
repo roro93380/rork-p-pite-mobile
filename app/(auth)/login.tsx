@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Mail, Lock } from 'lucide-react-native';
+import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import GoldButton from '@/components/GoldButton';
@@ -24,6 +24,7 @@ export default function LoginScreen() {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = useCallback(async () => {
@@ -92,9 +93,12 @@ export default function LoginScreen() {
             placeholderTextColor={Colors.textMuted}
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={!showPassword}
             textContentType="password"
           />
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+            {showPassword ? <EyeOff size={20} color={Colors.textMuted} /> : <Eye size={20} color={Colors.textMuted} />}
+          </TouchableOpacity>
         </View>
 
         {loading ? (
@@ -169,6 +173,9 @@ const styles = StyleSheet.create({
   },
   inputIcon: {
     marginRight: 10,
+  },
+  eyeIcon: {
+    padding: 8,
   },
   input: {
     flex: 1,

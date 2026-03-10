@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Mail, Lock, User } from 'lucide-react-native';
+import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import GoldButton from '@/components/GoldButton';
@@ -25,6 +25,7 @@ export default function RegisterScreen() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleRegister = useCallback(async () => {
@@ -50,8 +51,9 @@ export default function RegisterScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
       Alert.alert(
-        'Bienvenue !',
-        'Votre compte a été créé avec succès.',
+        'Vérifiez votre email \u2709\ufe0f',
+        `Un email de vérification a été envoyé à ${email}. Cliquez sur le lien pour activer votre compte.\n\nVérifiez aussi vos spams.`,
+        [{ text: 'OK', onPress: () => router.replace('/login' as any) }],
       );
     }
   }, [email, password, fullName, signUp]);
@@ -117,9 +119,12 @@ export default function RegisterScreen() {
             placeholderTextColor={Colors.textMuted}
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={!showPassword}
             textContentType="newPassword"
           />
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+            {showPassword ? <EyeOff size={20} color={Colors.textMuted} /> : <Eye size={20} color={Colors.textMuted} />}
+          </TouchableOpacity>
         </View>
 
         {loading ? (
@@ -187,6 +192,9 @@ const styles = StyleSheet.create({
   },
   inputIcon: {
     marginRight: 10,
+  },
+  eyeIcon: {
+    padding: 8,
   },
   input: {
     flex: 1,

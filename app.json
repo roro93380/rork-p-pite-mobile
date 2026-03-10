@@ -1,28 +1,37 @@
 {
   "expo": {
-    "name": "Pépite Mobile",
+    "name": "Pépite",
     "slug": "pepite-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
-    "userInterfaceStyle": "automatic",
+    "scheme": "pepite",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1a1a2e"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.pepite-mobile"
+      "bundleIdentifier": "fr.ppite.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Pépite utilise la caméra pour scanner des articles.",
+        "NSPhotoLibraryUsageDescription": "Pépite accède à vos photos pour importer des articles."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1a1a2e"
       },
-      "package": "app.rork.pepite_mobile"
+      "package": "fr.ppite.mobile",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -31,15 +40,31 @@
       [
         "expo-router",
         {
-          "origin": "https://rork.com/"
+          "origin": "https://ppite.fr/"
         }
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#FFD700"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": "https://ppite.fr/"
+      },
+      "eas": {
+        "projectId": "bc8a9eea-f4d9-4ebb-b30f-3f1c3bcfd15b"
+      }
+    },
+    "owner": "rorolinux"
   }
 }

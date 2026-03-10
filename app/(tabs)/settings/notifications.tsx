@@ -4,18 +4,29 @@ import { Bell, BellOff } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePepite } from '@/providers/PepiteProvider';
+import { useAuth } from '@/contexts/AuthContext';
+import { scheduleDailyReminder, cancelDailyReminder } from '@/services/notificationService';
+
+const SCAN_LIMITS: Record<string, number> = { free: 3, gold: 10, platinum: 30 };
 
 export default function NotificationsScreen() {
   const { settings, updateSettings } = usePepite();
+  const { state } = useAuth();
+  const tier = state.profile?.subscription_tier || 'free';
 
   const handleToggle = useCallback(
-    (value: boolean) => {
+    async (value: boolean) => {
       if (Platform.OS !== 'web') {
         Haptics.selectionAsync();
       }
       updateSettings({ notificationsEnabled: value });
+      if (value) {
+        await scheduleDailyReminder(SCAN_LIMITS[tier] || 3, tier);
+      } else {
+        await cancelDailyReminder();
+      }
     },
-    [updateSettings]
+    [updateSettings, tier]
   );
 
   return (

@@ -104,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password,
         options: {
           data: { full_name: fullName || '' },
+          emailRedirectTo: 'https://app-pepite.web.app/auth/callback',
         },
       });
       if (error) return { error: error.message };

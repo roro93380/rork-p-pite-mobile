@@ -96,3 +96,41 @@ export async function sendPepiteFoundNotification(pepites: Pepite[]): Promise<vo
     console.error('[Notifications] Send error:', error);
   }
 }
+
+/**
+ * Programme une notification quotidienne à 9h : "Vous avez X scans disponibles"
+ */
+export async function scheduleDailyReminder(scansAvailable: number, tier: string): Promise<void> {
+  if (Platform.OS === 'web') return;
+
+  // Annuler l'ancienne notif quotidienne
+  await Notifications.cancelScheduledNotificationAsync('daily-reminder').catch(() => {});
+
+  try {
+    await Notifications.scheduleNotificationAsync({
+      identifier: 'daily-reminder',
+      content: {
+        title: '🔍 Vos scans sont prêts !',
+        body: `Vous avez ${scansAvailable} scans disponibles aujourd'hui. Trouvez la prochaine pépite !`,
+        sound: 'default',
+        ...(Platform.OS === 'android' ? { channelId: 'pepites' } : {}),
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour: 9,
+        minute: 0,
+      },
+    });
+    console.log('[Notifications] Daily reminder scheduled at 9:00');
+  } catch (error) {
+    console.error('[Notifications] Daily reminder error:', error);
+  }
+}
+
+/**
+ * Annuler la notification quotidienne (quand l'utilisateur désactive les notifs)
+ */
+export async function cancelDailyReminder(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  await Notifications.cancelScheduledNotificationAsync('daily-reminder').catch(() => {});
+}

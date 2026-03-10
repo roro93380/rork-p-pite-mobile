@@ -22,6 +22,7 @@ import {
   LogOut,
   User,
   UserX,
+  Gift,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -189,6 +190,13 @@ export default function SettingsScreen() {
           icon={<Crown size={22} color={Colors.gold} />}
           label="Passer Premium"
           onPress={() => router.push('/premium')}
+        />
+        <View style={styles.separator} />
+
+        <SettingsRow
+          icon={<Gift size={22} color={Colors.gold} />}
+          label="Inviter un ami"
+          onPress={() => router.push('/referral')}
         />
         <View style={styles.separator} />
 
