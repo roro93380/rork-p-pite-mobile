@@ -79,3 +79,75 @@ export async function openCustomerPortal(): Promise<{ success: boolean; error?: 
     return { success: false, error: e.message || 'Erreur inconnue.' };
   }
 }
+
+/**
+ * Get current subscription status from Stripe via manage-subscription edge function.
+ */
+export async function getSubscriptionStatus(): Promise<{ subscription: any; tier: string; error?: string }> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session?.access_token) {
+      return { subscription: null, tier: 'free', error: 'Non authentifié.' };
+    }
+
+    const { data, error } = await supabase.functions.invoke('manage-subscription', {
+      body: { action: 'status' },
+    });
+
+    if (error) {
+      return { subscription: null, tier: 'free', error: error.message };
+    }
+
+    return { subscription: data?.subscription, tier: data?.tier || 'free' };
+  } catch (e: any) {
+    return { subscription: null, tier: 'free', error: e.message || 'Erreur inconnue.' };
+  }
+}
+
+/**
+ * Cancel subscription at end of current billing period.
+ */
+export async function cancelSubscription(): Promise<{ success: boolean; message?: string; subscription?: any; error?: string }> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session?.access_token) {
+      return { success: false, error: 'Non authentifié.' };
+    }
+
+    const { data, error } = await supabase.functions.invoke('manage-subscription', {
+      body: { action: 'cancel' },
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: data?.success || false, message: data?.message, subscription: data?.subscription };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Erreur inconnue.' };
+  }
+}
+
+/**
+ * Reactivate a subscription that was set to cancel at period end.
+ */
+export async function reactivateSubscription(): Promise<{ success: boolean; message?: string; subscription?: any; error?: string }> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session?.access_token) {
+      return { success: false, error: 'Non authentifié.' };
+    }
+
+    const { data, error } = await supabase.functions.invoke('manage-subscription', {
+      body: { action: 'reactivate' },
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: data?.success || false, message: data?.message, subscription: data?.subscription };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Erreur inconnue.' };
+  }
+}

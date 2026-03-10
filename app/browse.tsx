@@ -20,6 +20,7 @@ import { captureRef } from 'react-native-view-shot';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePepite } from '@/providers/PepiteProvider';
+import { useAuth } from '@/contexts/AuthContext';
 
 const SCAN_TIPS = [
   '☕ Prenez un café, Pépite s\'en charge',
@@ -2444,7 +2445,11 @@ export default function BrowseScreen() {
     source: string;
   }>();
 
-  const { startScan, stopScan, isAnalyzing, lastScanResults, scanError, settings } = usePepite();
+  const { startScan, stopScan, isAnalyzing, lastScanResults, scanError, settings, scanStats } = usePepite();
+  const { profile } = useAuth();
+
+  // Limites de scans par jour selon le plan
+  const SCAN_LIMITS: Record<string, number> = { free: 3, gold: 10, platinum: 30 };
 
   const [scanning, setScanning] = useState<boolean>(false);
   const [scanTime, setScanTime] = useState<number>(0);
@@ -2809,6 +2814,22 @@ export default function BrowseScreen() {
       return;
     }
 
+    // Vérifier la limite quotidienne de scans
+    const tier = profile?.subscription_tier || 'free';
+    const dailyLimit = SCAN_LIMITS[tier] || SCAN_LIMITS.free;
+    if (scanStats.scansToday >= dailyLimit) {
+      const tierLabels: Record<string, string> = { free: 'Free', gold: 'Gold', platinum: 'Platinum' };
+      Alert.alert(
+        'Limite de scans atteinte',
+        `Votre plan ${tierLabels[tier]} permet ${dailyLimit} scans par jour.\nVous avez déjà utilisé ${scanStats.scansToday} scans aujourd\'hui.\n\n💎 Passez au plan supérieur pour plus de scans !`,
+        [
+          { text: 'OK', style: 'cancel' },
+          { text: 'Voir les plans', onPress: () => router.push('/premium' as any) },
+        ]
+      );
+      return;
+    }
+
     // Afficher le tutorial si pas encore caché
     if (showScanTutorial) {
       setShowScanTutorial(true);
@@ -2817,7 +2838,7 @@ export default function BrowseScreen() {
 
     // Sinon, démarrer directement le scan
     startActualScan();
-  }, [settings.geminiApiKey, showScanTutorial, router]);
+  }, [settings.geminiApiKey, showScanTutorial, router, profile, scanStats]);
 
   const startActualScan = useCallback(() => {
     if (Platform.OS !== 'web') {

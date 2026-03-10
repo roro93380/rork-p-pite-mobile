@@ -11,13 +11,14 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Scan, Pickaxe, Star, Trash2 } from 'lucide-react-native';
+import { Scan, Pickaxe, Star, Trash2, Zap } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import LogoHeader from '@/components/LogoHeader';
 import PepiteCard from '@/components/PepiteCard';
 import EmptyState from '@/components/EmptyState';
 import { usePepite } from '@/providers/PepiteProvider';
+import { useAuth } from '@/contexts/AuthContext';
 import { Pepite } from '@/types';
 
 type MarginFilter = 'all' | '10' | '20' | '30';
@@ -42,7 +43,15 @@ export default function DashboardScreen() {
     activePepites,
     toggleFavorite,
     trashPepite,
+    scanStats,
   } = usePepite();
+  const { profile } = useAuth();
+
+  // Limites de scans par jour selon le plan
+  const SCAN_LIMITS: Record<string, number> = { free: 3, gold: 10, platinum: 30 };
+  const tier = profile?.subscription_tier || 'free';
+  const dailyLimit = SCAN_LIMITS[tier] || SCAN_LIMITS.free;
+  const remaining = Math.max(0, dailyLimit - scanStats.scansToday);
 
   const [refreshing, setRefreshing] = React.useState(false);
   const [filterMargin, setFilterMargin] = useState<MarginFilter>('all');
@@ -133,6 +142,20 @@ export default function DashboardScreen() {
           <Text style={styles.scanButtonText}>+ SCAN</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Scans restants aujourd'hui */}
+      <TouchableOpacity
+        style={[styles.scanLimitBanner, remaining === 0 && styles.scanLimitBannerDanger]}
+        onPress={() => remaining === 0 ? router.push('/premium' as any) : null}
+        activeOpacity={remaining === 0 ? 0.7 : 1}
+      >
+        <Zap size={14} color={remaining === 0 ? '#FF6B6B' : Colors.gold} />
+        <Text style={[styles.scanLimitText, remaining === 0 && styles.scanLimitTextDanger]}>
+          {remaining === 0
+            ? `Limite atteinte (${dailyLimit}/${dailyLimit}) — Passez au plan supérieur`
+            : `${remaining} scan${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''} aujourd'hui (${scanStats.scansToday}/${dailyLimit})`}
+        </Text>
+      </TouchableOpacity>
 
       {!isEmpty && (
         <>
@@ -366,6 +389,31 @@ const styles = StyleSheet.create({
   },
   feedEnd: {
     height: 40,
+  },
+  scanLimitBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.gold + '30',
+  },
+  scanLimitBannerDanger: {
+    borderColor: '#FF6B6B40',
+    backgroundColor: '#FF6B6B10',
+  },
+  scanLimitText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600' as const,
+  },
+  scanLimitTextDanger: {
+    color: '#FF6B6B',
   },
 });
 

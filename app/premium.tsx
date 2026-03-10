@@ -8,15 +8,16 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
-import { Crown, Check, Zap, Shield, Infinity } from 'lucide-react-native';
+import { Crown, Check, Zap, Shield, Infinity, Building2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import LogoHeader from '@/components/LogoHeader';
 import GoldButton from '@/components/GoldButton';
 import { useAuth } from '@/contexts/AuthContext';
-import { startCheckout, openCustomerPortal, PlanId } from '@/services/stripeService';
+import { startCheckout, openCustomerPortal, cancelSubscription, reactivateSubscription, getSubscriptionStatus, PlanId } from '@/services/stripeService';
 
 interface PlanFeature {
   label: string;
@@ -33,14 +34,29 @@ interface Plan {
 
 const plans: Plan[] = [
   {
+    name: 'FREE',
+    price: '0€',
+    period: '',
+    highlighted: false,
+    features: [
+      { label: '3 Scans / jour', included: true },
+      { label: '30 annonces / scan', included: true },
+      { label: 'Analyse IA basique', included: true },
+      { label: 'Historique 7 jours', included: true },
+    ],
+  },
+  {
     name: 'GOLD',
     price: '9,99€',
     period: '/ mois',
     highlighted: true,
     features: [
-      { label: '50 Scans / jour', included: true },
-      { label: 'Analyse Prioritaire', included: true },
-      { label: 'Clé API incluse', included: true },
+      { label: '7 jours d\'essai gratuit', included: true },
+      { label: '10 Scans / jour', included: true },
+      { label: '50 annonces / scan', included: true },
+      { label: 'Analyse IA avancée', included: true },
+      { label: 'Historique illimité', included: true },
+      { label: 'Support prioritaire', included: true },
     ],
   },
   {
@@ -49,10 +65,28 @@ const plans: Plan[] = [
     period: '/ mois',
     highlighted: false,
     features: [
-      { label: 'Scans Illimités', included: true },
-      { label: 'Analyse Prioritaire', included: true },
-      { label: 'Clé API incluse', included: true },
-      { label: 'Mode Multi-App', included: true },
+      { label: '7 jours d\'essai gratuit', included: true },
+      { label: '30 Scans / jour', included: true },
+      { label: '100 annonces / scan', included: true },
+      { label: 'Analyse IA premium', included: true },
+      { label: 'Historique illimité', included: true },
+      { label: 'Support prioritaire', included: true },
+      { label: 'Accès API (bientôt)', included: true },
+    ],
+  },
+  {
+    name: 'ENTREPRISE',
+    price: 'Sur devis',
+    period: '',
+    highlighted: false,
+    features: [
+      { label: 'Scans illimités', included: true },
+      { label: 'Annonces illimitées', included: true },
+      { label: 'Analyse IA dédiée', included: true },
+      { label: 'Historique illimité', included: true },
+      { label: 'Support dédié 24/7', included: true },
+      { label: 'Accès API complet', included: true },
+      { label: 'Intégration sur-mesure', included: true },
     ],
   },
 ];
@@ -65,6 +99,11 @@ export default function PremiumScreen() {
   const handleSubscribe = useCallback(async (planName: string) => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+
+    if (planName === 'ENTREPRISE') {
+      Linking.openURL('mailto:contact@ppite.fr?subject=Demande%20de%20devis%20Entreprise%20P%C3%A9pite&body=Bonjour%2C%0A%0AJe%20souhaite%20obtenir%20un%20devis%20pour%20le%20forfait%20Entreprise.%0A%0AMerci');
+      return;
     }
 
     const planId: PlanId = planName === 'GOLD' ? 'gold' : 'platinum';
@@ -101,13 +140,84 @@ export default function PremiumScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     setLoading(true);
-    const { error } = await openCustomerPortal();
+    const { subscription, tier, error } = await getSubscriptionStatus();
     setLoading(false);
+
     if (error) {
       Alert.alert('Erreur', error);
+      return;
     }
-    // Refresh profile after returning from portal
-    await refreshProfile();
+
+    if (!subscription) {
+      Alert.alert('Aucun abonnement', 'Vous n\'avez pas d\'abonnement payant actif.');
+      return;
+    }
+
+    const endDate = subscription.current_period_end
+      ? new Date(subscription.current_period_end * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+      : '—';
+
+    if (subscription.cancel_at_period_end) {
+      // Already canceling → offer reactivate
+      Alert.alert(
+        'Annulation programmée',
+        `Votre abonnement ${tier.toUpperCase()} sera annulé le ${endDate}.\nVous conservez l'accès jusqu'à cette date.`,
+        [
+          { text: 'Fermer', style: 'cancel' },
+          {
+            text: 'Réactiver',
+            onPress: async () => {
+              setLoading(true);
+              const result = await reactivateSubscription();
+              setLoading(false);
+              if (result.success) {
+                Alert.alert('Réactivé ✅', result.message || 'Votre abonnement est de nouveau actif !');
+                await refreshProfile();
+              } else {
+                Alert.alert('Erreur', result.error || 'Impossible de réactiver.');
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      // Active → offer cancel
+      Alert.alert(
+        'Gérer mon abonnement',
+        `Plan ${tier.toUpperCase()} actif.\nProchain renouvellement : ${endDate}`,
+        [
+          { text: 'Fermer', style: 'cancel' },
+          {
+            text: 'Annuler l\'abonnement',
+            style: 'destructive',
+            onPress: () => {
+              Alert.alert(
+                'Confirmer l\'annulation ?',
+                `Votre abonnement restera actif jusqu'au ${endDate}. Après cette date, vous passerez au plan Free (3 scans/jour, 30 annonces/scan).`,
+                [
+                  { text: 'Non, garder', style: 'cancel' },
+                  {
+                    text: 'Oui, annuler',
+                    style: 'destructive',
+                    onPress: async () => {
+                      setLoading(true);
+                      const result = await cancelSubscription();
+                      setLoading(false);
+                      if (result.success) {
+                        Alert.alert('Annulé', result.message || 'Votre abonnement sera annulé en fin de période.');
+                        await refreshProfile();
+                      } else {
+                        Alert.alert('Erreur', result.error || 'Impossible d\'annuler.');
+                      }
+                    },
+                  },
+                ]
+              );
+            },
+          },
+        ]
+      );
+    }
   }, [refreshProfile]);
 
   return (
@@ -165,10 +275,11 @@ export default function PremiumScreen() {
             ))}
 
             <GoldButton
-              title={plan.highlighted ? "S'abonner" : "S'abonner"}
-              onPress={() => handleSubscribe(plan.name)}
-              variant={plan.highlighted ? 'filled' : 'outlined'}
-              style={styles.subscribeButton}
+              title={plan.name === 'FREE' ? 'Forfait actuel' : plan.name === 'ENTREPRISE' ? 'Nous contacter' : plan.name === 'GOLD' ? 'Essayer Gold gratuitement' : plan.name === 'PLATINUM' ? 'Essayer Platinum gratuitement' : "S'abonner"}
+              onPress={() => plan.name !== 'FREE' && handleSubscribe(plan.name)}
+              variant={plan.name === 'ENTREPRISE' ? 'outlined' : plan.highlighted ? 'filled' : 'outlined'}
+              style={[styles.subscribeButton, plan.name === 'FREE' && { opacity: 0.5 }]}
+              disabled={plan.name === 'FREE'}
             />
           </View>
         ))}

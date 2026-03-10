@@ -364,6 +364,16 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       console.log(`[PepiteProvider] Screenshots: ${screenshots?.length ?? 0}`);
       console.log(`[PepiteProvider] Text content: ${pageContent.length} chars`);
       console.log(`[PepiteProvider] Extracted items: ${extractedItems?.length ?? 0}`);
+
+      // Cap d'items selon le plan (free=30, gold=50, platinum=100)
+      const ITEMS_CAPS: Record<string, number> = { free: 30, gold: 50, platinum: 100 };
+      const userTier = 'free'; // TODO: get from auth profile
+      const MAX_ITEMS_PER_SCAN = ITEMS_CAPS[userTier] || ITEMS_CAPS.free;
+      if (extractedItems && extractedItems.length > MAX_ITEMS_PER_SCAN) {
+        console.log(`[PepiteProvider] ⚡ Capping items from ${extractedItems.length} to ${MAX_ITEMS_PER_SCAN} (${userTier})`);
+        extractedItems = extractedItems.slice(0, MAX_ITEMS_PER_SCAN);
+      }
+
       if (pageContent.length > 0) {
         console.log(`[PepiteProvider] Text preview: ${pageContent.substring(0, 200)}`);
       } else {
