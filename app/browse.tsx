@@ -3103,11 +3103,37 @@ export default function BrowseScreen() {
             style={styles.webview}
             userAgent={WEBVIEW_USER_AGENT}
             onLoadEnd={() => {
-              console.log('[Browse] Page loaded');
               setPageLoaded(true);
-              // L'extraction sera déclenchée par le scan, pas au chargement
             }}
             onMessage={handleWebViewMessage}
+            onError={(syntheticEvent: any) => {
+              const { nativeEvent } = syntheticEvent;
+              if (__DEV__) console.log('[Browse] WebView error:', nativeEvent);
+              Alert.alert(
+                'Erreur de chargement',
+                'La page n\'a pas pu être chargée. Vérifiez votre connexion internet.',
+                [
+                  { text: 'Retour', onPress: () => router.back() },
+                  { text: 'Réessayer', onPress: () => webViewRef.current?.reload() },
+                ]
+              );
+            }}
+            onHttpError={(syntheticEvent: any) => {
+              const { nativeEvent } = syntheticEvent;
+              if (__DEV__) console.log('[Browse] HTTP error:', nativeEvent.statusCode);
+            }}
+            renderError={(errorDomain: string | undefined, errorCode: number, errorDesc: string) => (
+              <View style={styles.loadingContainer}>
+                <Text style={[styles.loadingText, { marginBottom: 12 }]}>Erreur de chargement</Text>
+                <Text style={[styles.loadingText, { fontSize: 13, opacity: 0.7 }]}>{errorDesc}</Text>
+                <TouchableOpacity
+                  onPress={() => webViewRef.current?.reload()}
+                  style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: Colors.gold, borderRadius: 8 }}
+                >
+                  <Text style={{ color: '#000', fontWeight: '600' }}>Réessayer</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             startInLoadingState
             renderLoading={() => (
               <View style={styles.loadingContainer}>
@@ -3118,6 +3144,13 @@ export default function BrowseScreen() {
             javaScriptEnabled
             domStorageEnabled
             allowsInlineMediaPlayback
+            setSupportMultipleWindows={false}
+            androidLayerType="hardware"
+            mixedContentMode="compatibility"
+            thirdPartyCookiesEnabled={true}
+            cacheEnabled={true}
+            overScrollMode="never"
+            allowsBackForwardNavigationGestures={true}
           />
           </View>
         ) : (

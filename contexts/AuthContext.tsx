@@ -60,8 +60,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /* ── listen to auth changes ──────────── */
   useEffect(() => {
+    let didResolve = false;
+
+    // Timeout: if auth takes >10s, stop loading and redirect to login
+    const timeout = setTimeout(() => {
+      if (!didResolve) {
+        didResolve = true;
+        setState((prev) => (prev.loading ? { ...prev, loading: false } : prev));
+      }
+    }, 10000);
+
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (didResolve) return;
+      didResolve = true;
+      clearTimeout(timeout);
       let profile: Profile | null = null;
       if (session?.user) {
         profile = await fetchProfile(session.user.id);
@@ -91,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      clearTimeout(timeout);
       subscription.unsubscribe();
     };
   }, [fetchProfile]);

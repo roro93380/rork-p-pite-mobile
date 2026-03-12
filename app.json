@@ -65,6 +65,12 @@
         "projectId": "bc8a9eea-f4d9-4ebb-b30f-3f1c3bcfd15b"
       }
     },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/bc8a9eea-f4d9-4ebb-b30f-3f1c3bcfd15b"
+    },
     "owner": "rorolinux"
   }
 }

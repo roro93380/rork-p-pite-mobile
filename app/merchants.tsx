@@ -68,7 +68,6 @@ export default function MerchantsScreen() {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    console.log('[Merchants] Selected:', merchant.name, merchant.url);
     router.push({
       pathname: '/browse',
       params: { url: merchant.url, name: merchant.name, source: merchant.id },
