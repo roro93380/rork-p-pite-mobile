@@ -2456,7 +2456,8 @@ export default function BrowseScreen() {
   const [pageLoaded, setPageLoaded] = useState<boolean>(false);
   const [showResults, setShowResults] = useState<boolean>(false);
   const [extractedContent, setExtractedContent] = useState<string>('');
-  const [showScanTutorial, setShowScanTutorial] = useState<boolean>(true);
+  const [showScanTutorial, setShowScanTutorial] = useState<boolean>(false);
+  const [tutorialPreferenceLoaded, setTutorialPreferenceLoaded] = useState<boolean>(false);
   const [dontShowTutorialAgain, setDontShowTutorialAgain] = useState<boolean>(false);
   const [currentSlide, setCurrentSlide] = useState<number>(0);
 
@@ -2497,11 +2498,14 @@ export default function BrowseScreen() {
     (async () => {
       try {
         const stored = await AsyncStorage.getItem('scan_tutorial_hidden');
-        if (stored === 'true') {
-          setShowScanTutorial(false);
+        // N'afficher le tutorial que si l'utilisateur n'a pas coché "ne plus voir"
+        if (stored !== 'true') {
+          setShowScanTutorial(true);
         }
       } catch (e) {
         console.log('[Browse] Error loading tutorial preference:', e);
+      } finally {
+        setTutorialPreferenceLoaded(true);
       }
     })();
   }, []);
@@ -3328,7 +3332,7 @@ export default function BrowseScreen() {
 
       {/* Tutorial Modal Carousel */}
       <Modal
-        visible={showScanTutorial}
+        visible={tutorialPreferenceLoaded && showScanTutorial}
         transparent
         animationType="fade"
         onRequestClose={() => setShowScanTutorial(false)}

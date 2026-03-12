@@ -207,7 +207,7 @@ export default function SettingsScreen() {
         />
 
         <View style={styles.versionBlock}>
-          <Text style={styles.versionText}>Pépite.io v1.0.0</Text>
+          <Text style={styles.versionText}>ppite.fr v1.0.0</Text>
         </View>
 
         <View style={styles.separator} />

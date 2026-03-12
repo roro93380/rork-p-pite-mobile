@@ -52,7 +52,7 @@ export default function HelpScreen() {
         </Text>
         <TouchableOpacity
           style={styles.supportButton}
-          onPress={() => Linking.openURL('mailto:support@pepite.io')}
+          onPress={() => Linking.openURL('mailto:support@ppite.fr')}
         >
           <ExternalLink size={16} color="#000" />
           <Text style={styles.supportButtonText}>Contacter le support</Text>

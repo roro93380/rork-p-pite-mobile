@@ -4,10 +4,15 @@ import React, {
   useEffect,
   useState,
   useCallback,
+  useRef,
 } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/services/supabaseClient';
 import { Profile } from '@/types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Déconnexion automatique après 3 heures (en millisecondes)
+const AUTO_LOGOUT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 
 interface AuthState {
   session: Session | null;
@@ -36,6 +41,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profile: null,
     loading: true,
   });
+
+  const autoLogoutTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   /* ── fetch profile from Supabase ──────────── */
   const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
@@ -149,6 +156,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /* ── sign out ──────────── */
   const signOut = useCallback(async () => {
+    // Clear auto-logout timer
+    if (autoLogoutTimerRef.current) {
+      clearTimeout(autoLogoutTimerRef.current);
+      autoLogoutTimerRef.current = null;
+    }
+    // Clear stored login time
+    await AsyncStorage.removeItem('auth_login_time');
     await supabase.auth.signOut();
     setState({
       session: null,
@@ -157,6 +171,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading: false,
     });
   }, []);
+
+  /* ── auto logout after 3 hours ──────────── */
+  useEffect(() => {
+    const setupAutoLogout = async () => {
+      if (!state.session) {
+        // User not logged in, clear timer
+        if (autoLogoutTimerRef.current) {
+          clearTimeout(autoLogoutTimerRef.current);
+          autoLogoutTimerRef.current = null;
+        }
+        return;
+      }
+
+      try {
+        const storedLoginTime = await AsyncStorage.getItem('auth_login_time');
+        const now = Date.now();
+
+        if (storedLoginTime) {
+          const loginTime = parseInt(storedLoginTime, 10);
+          const elapsed = now - loginTime;
+
+          if (elapsed >= AUTO_LOGOUT_TIMEOUT_MS) {
+            // Already past 3h, log out immediately
+            console.log('[Auth] Auto-logout: 3h session expired');
+            signOut();
+            return;
+          }
+
+          // Schedule logout for remaining time
+          const remaining = AUTO_LOGOUT_TIMEOUT_MS - elapsed;
+          autoLogoutTimerRef.current = setTimeout(() => {
+            console.log('[Auth] Auto-logout: 3h session timeout');
+            signOut();
+          }, remaining);
+        } else {
+          // New session, store login time and schedule logout
+          await AsyncStorage.setItem('auth_login_time', now.toString());
+          autoLogoutTimerRef.current = setTimeout(() => {
+            console.log('[Auth] Auto-logout: 3h session timeout');
+            signOut();
+          }, AUTO_LOGOUT_TIMEOUT_MS);
+        }
+      } catch (e) {
+        console.log('[Auth] Error setting up auto-logout:', e);
+      }
+    };
+
+    setupAutoLogout();
+
+    return () => {
+      if (autoLogoutTimerRef.current) {
+        clearTimeout(autoLogoutTimerRef.current);
+      }
+    };
+  }, [state.session, signOut]);
 
   /* ── reset password ──────────── */
   const resetPassword = useCallback(async (email: string) => {
