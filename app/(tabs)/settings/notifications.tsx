@@ -11,8 +11,8 @@ const SCAN_LIMITS: Record<string, number> = { free: 3, gold: 10, platinum: 30 };
 
 export default function NotificationsScreen() {
   const { settings, updateSettings } = usePepite();
-  const { state } = useAuth();
-  const tier = state.profile?.subscription_tier || 'free';
+  const { profile } = useAuth();
+  const tier = profile?.subscription_tier || 'free';
 
   const handleToggle = useCallback(
     async (value: boolean) => {

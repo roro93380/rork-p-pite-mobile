@@ -69,7 +69,7 @@ serve(async (req: Request) => {
         .single();
 
       if (profile) {
-        if (subscription.status === 'active') {
+        if (subscription.status === 'active' || subscription.status === 'trialing') {
           // Déterminer le plan à partir du price ID
           const priceId = subscription.items.data[0]?.price?.id;
           let tier = 'free';

@@ -124,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password,
         options: {
           data: { full_name: fullName || '' },
-          emailRedirectTo: 'https://app-pepite.web.app/auth/callback',
+          emailRedirectTo: 'https://app-ppite.web.app/auth/callback',
         },
       });
       if (error) return { error: error.message };
@@ -138,6 +138,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           subscription_tier: 'free',
           onboarding_completed: false,
         });
+
+        // Fire-and-forget welcome email
+        try {
+          const SUPABASE_URL = 'https://didkwpenayulngybldkc.supabase.co';
+          const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpZGt3cGVuYXl1bG5neWJsZGtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NjkzNjEsImV4cCI6MjA4NjM0NTM2MX0.4IxU0pkaG9sLKR9Y-4AsxLnNOli0bQf6TDSKgEDVFvI';
+          fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: ANON_KEY,
+              Authorization: `Bearer ${ANON_KEY}`,
+            },
+            body: JSON.stringify({
+              template: 'welcome',
+              to: email,
+              data: { name: fullName || '' },
+            }),
+          });
+        } catch (_) { /* silent */ }
       }
       return { error: null };
     },
@@ -230,7 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /* ── reset password ──────────── */
   const resetPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://app-pepite.web.app/auth/callback',
+      redirectTo: 'https://app-ppite.web.app/auth/callback',
     });
     if (error) return { error: error.message };
     return { error: null };

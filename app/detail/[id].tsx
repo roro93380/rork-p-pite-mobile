@@ -89,9 +89,9 @@ export default function DetailScreen() {
     });
   };
 
-  const profitMargin = Math.round(
-    (pepite.profit / pepite.sellerPrice) * 100
-  );
+  const profitMargin = pepite.sellerPrice > 0
+    ? Math.round((pepite.profit / pepite.sellerPrice) * 100)
+    : 0;
 
   return (
     <View style={styles.screen}>

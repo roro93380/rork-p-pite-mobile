@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import createContextHook from '@nkzw/create-context-hook';
@@ -14,7 +14,7 @@ import {
   emptyTrashRemote,
   fetchAllPepites,
 } from '@/services/pepiteDbService';
-import { insertScanRecord, fetchAllScans } from '@/services/scanDbService';
+import { fetchAllScans } from '@/services/scanDbService';
 
 const STORAGE_KEYS = {
   PEPITES: 'pepite_items',
@@ -39,6 +39,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanSessions, setScanSessions] = useState<ScanSession[]>([]);
   const [hasSynced, setHasSynced] = useState<boolean>(false);
+  const pendingScanIdRef = useRef<string | null>(null);
 
   /** Helper: get Supabase user id (null if not logged in) */
   const getUserId = useCallback(async (): Promise<string | null> => {
@@ -365,9 +366,47 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       console.log(`[PepiteProvider] Text content: ${pageContent.length} chars`);
       console.log(`[PepiteProvider] Extracted items: ${extractedItems?.length ?? 0}`);
 
-      // Cap d'items selon le plan (free=30, gold=50, platinum=100)
+      // Limites par plan
       const ITEMS_CAPS: Record<string, number> = { free: 30, gold: 50, platinum: 100 };
-      const userTier = 'free'; // TODO: get from auth profile
+      const SCAN_LIMITS: Record<string, number> = { free: 3, gold: 10, platinum: 30 };
+
+      // Récupérer le tier depuis le profil Supabase
+      let userTier = 'free';
+      let userId: string | null = null;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        userId = sessionData.session?.user?.id ?? null;
+        if (userId) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('subscription_tier')
+            .eq('id', userId)
+            .single();
+          userTier = profileData?.subscription_tier || 'free';
+        }
+      } catch (e) {
+        console.warn('[PepiteProvider] Could not fetch tier, defaulting to free');
+      }
+
+      // Vérifier la limite quotidienne de scans AVANT l'analyse
+      if (userId) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const { count, error: countError } = await supabase
+          .from('scans')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .gte('created_at', todayStart.toISOString());
+
+        const todayScans = countError ? 0 : (count ?? 0);
+        const dailyLimit = SCAN_LIMITS[userTier] || SCAN_LIMITS.free;
+        console.log(`[PepiteProvider] 📊 Scans today: ${todayScans}/${dailyLimit} (${userTier})`);
+
+        if (todayScans >= dailyLimit) {
+          throw new Error(`Limite quotidienne atteinte (${todayScans}/${dailyLimit} scans). Passez au plan supérieur pour scanner davantage.`);
+        }
+      }
+
       const MAX_ITEMS_PER_SCAN = ITEMS_CAPS[userTier] || ITEMS_CAPS.free;
       if (extractedItems && extractedItems.length > MAX_ITEMS_PER_SCAN) {
         console.log(`[PepiteProvider] ⚡ Capping items from ${extractedItems.length} to ${MAX_ITEMS_PER_SCAN} (${userTier})`);
@@ -382,6 +421,21 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
       if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
         throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
+      }
+
+      // Insérer le scan dans Supabase AVANT l'analyse pour éviter les race conditions
+      const preScanId = Date.now().toString();
+      pendingScanIdRef.current = preScanId;
+      if (userId) {
+        await supabase.from('scans').insert({
+          id: preScanId,
+          user_id: userId,
+          source: merchantName,
+          url: '',
+          status: 'pending',
+          pepites_count: 0,
+          scan_date: new Date().toISOString(),
+        });
       }
 
       let results: any[] = [];
@@ -538,11 +592,11 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         console.log('[PepiteProvider] ℹ️ No extracted items available for enrichment');
       }
 
-      return results;
+      return { results, preScanId };
     },
-    onSuccess: async (results) => {
+    onSuccess: async ({ results, preScanId }) => {
       console.log(`[PepiteProvider] ============ SCAN SUCCESS: ${results.length} pepites ============`);
-      results.forEach((p, i) => {
+      results.forEach((p: any, i: number) => {
         console.log(`[PepiteProvider]   #${i + 1}: ${p.title} | ${p.sellerPrice}€ → ${p.estimatedValue}€`);
       });
       setLastScanResults(results);
@@ -557,11 +611,11 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       // Sauvegarder la session de scan
       try {
         const session: ScanSession = {
-          id: Date.now().toString(),
+          id: preScanId,
           date: new Date().toISOString(),
           duration: 0,
           pepitesFound: results.length,
-          totalProfit: results.reduce((sum, p) => sum + (p.profit ?? 0), 0),
+          totalProfit: results.reduce((sum: number, p: any) => sum + (p.profit ?? 0), 0),
           source: results[0]?.source ?? 'Inconnu',
         };
         const stored = await AsyncStorage.getItem(STORAGE_KEYS.SCAN_SESSIONS);
@@ -571,21 +625,40 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         setScanSessions(updated);
         queryClient.invalidateQueries({ queryKey: ['scan_sessions'] });
 
-        // Sync scan to Supabase
+        // Mettre à jour le scan dans Supabase (déjà inséré avant l'analyse)
         const uid = (await supabase.auth.getSession()).data.session?.user?.id;
         if (uid) {
-          insertScanRecord(session, uid);
+          await supabase.from('scans').update({
+            status: 'completed',
+            pepites_count: results.length,
+          }).eq('id', preScanId).eq('user_id', uid);
         }
       } catch (e) {
         console.log('[PepiteProvider] Error saving scan session:', e);
       }
 
       setScanError(null);
+      pendingScanIdRef.current = null;
     },
-    onError: (error: Error) => {
+    onError: async (error: Error) => {
       console.error('[PepiteProvider] ============ SCAN ERROR ============');
       console.error('[PepiteProvider] Error:', error.message);
       console.error('[PepiteProvider] Stack:', error.stack);
+
+      // Supprimer le scan 'pending' pré-inséré si l'analyse a échoué
+      if (pendingScanIdRef.current) {
+        const uid = (await supabase.auth.getSession()).data.session?.user?.id;
+        if (uid) {
+          supabase.from('scans')
+            .delete()
+            .eq('id', pendingScanIdRef.current)
+            .eq('user_id', uid)
+            .eq('status', 'pending')
+            .then(() => console.log('[PepiteProvider] 🗑️ Cleaned up pending scan'));
+        }
+        pendingScanIdRef.current = null;
+      }
+
       setScanError(error.message ?? 'Erreur lors de l\'analyse. Veuillez réessayer.');
     },
   });
