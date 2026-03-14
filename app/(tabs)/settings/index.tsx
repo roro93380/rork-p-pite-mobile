@@ -8,6 +8,7 @@ import {
   Switch,
   Platform,
   Alert,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -23,12 +24,16 @@ import {
   User,
   UserX,
   Gift,
+  Download,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import LogoHeader from '@/components/LogoHeader';
 import { usePepite } from '@/providers/PepiteProvider';
 import { useAuth } from '@/contexts/AuthContext';
+import { checkAndApplyOtaUpdate } from '@/services/updateService';
+
+const LATEST_ANDROID_APK_URL = 'https://expo.dev/artifacts/eas/8CX98t9LFpYiDeMJXD3qzf.apk';
 
 interface SettingsRowProps {
   icon: React.ReactNode;
@@ -122,6 +127,50 @@ export default function SettingsScreen() {
     );
   }, [deleteAccount]);
 
+  const openLatestApk = useCallback(async () => {
+    if (Platform.OS !== 'android') {
+      Alert.alert('Mise à jour', 'Le téléchargement APK direct est disponible sur Android uniquement.');
+      return;
+    }
+
+    try {
+      const canOpen = await Linking.canOpenURL(LATEST_ANDROID_APK_URL);
+      if (!canOpen) {
+        Alert.alert('Erreur', 'Impossible d\'ouvrir le lien de mise à jour.');
+        return;
+      }
+
+      await Linking.openURL(LATEST_ANDROID_APK_URL);
+    } catch {
+      Alert.alert('Erreur', 'Le téléchargement de la mise à jour a échoué.');
+    }
+  }, []);
+
+  const handleCheckForUpdate = useCallback(async () => {
+    const result = await checkAndApplyOtaUpdate();
+
+    if (result.status === 'update-applied') {
+      return;
+    }
+
+    if (result.status === 'up-to-date') {
+      Alert.alert('Mise à jour', 'Aucune mise à jour OTA disponible pour le moment.');
+      return;
+    }
+
+    Alert.alert(
+      'Installer la derniere version',
+      'Aucune mise à jour OTA n\'a pu être appliquee. Vous pouvez installer la derniere APK Android maintenant.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Mettre à jour',
+          onPress: openLatestApk,
+        },
+      ]
+    );
+  }, [openLatestApk]);
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <LogoHeader size="medium" />
@@ -197,6 +246,13 @@ export default function SettingsScreen() {
           icon={<Gift size={22} color={Colors.gold} />}
           label="Inviter un ami"
           onPress={() => router.push('/referral')}
+        />
+        <View style={styles.separator} />
+
+        <SettingsRow
+          icon={<Download size={22} color={Colors.gold} />}
+          label="Rechercher les mises à jour"
+          onPress={handleCheckForUpdate}
         />
         <View style={styles.separator} />
 

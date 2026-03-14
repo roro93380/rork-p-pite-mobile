@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -21,11 +21,20 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signIn, session } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    setLoading(false);
+    router.replace('/(tabs)' as any);
+  }, [session, router]);
 
   const handleLogin = useCallback(async () => {
     if (!email.trim() || !password.trim()) {
@@ -34,9 +43,9 @@ export default function LoginScreen() {
     }
     setLoading(true);
     const { error } = await signIn(email.trim(), password);
-    setLoading(false);
 
     if (error) {
+      setLoading(false);
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
@@ -45,8 +54,9 @@ export default function LoginScreen() {
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
+      router.replace('/(tabs)' as any);
     }
-  }, [email, password, signIn]);
+  }, [email, password, signIn, router]);
 
   return (
     <KeyboardAvoidingView

@@ -138,7 +138,7 @@ export default function ReferralScreen() {
 
       {/* Appliquer un code */}
       <View style={styles.card}>
-        <Text style={styles.label}>J'ai un code parrain</Text>
+        <Text style={styles.label}>{"J'ai un code parrain"}</Text>
         <View style={styles.inputRow}>
           <TextInput
             style={styles.input}

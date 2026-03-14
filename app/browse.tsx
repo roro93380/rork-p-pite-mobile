@@ -21,6 +21,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePepite } from '@/providers/PepiteProvider';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/services/supabaseClient';
 
 const SCAN_TIPS = [
   '☕ Prenez un café, Pépite s\'en charge',
@@ -2805,7 +2806,7 @@ export default function BrowseScreen() {
     }
   }, [url]);
 
-  const handleStartScan = useCallback(() => {
+  const handleStartScan = useCallback(async () => {
     if (!settings.geminiApiKey || settings.geminiApiKey.trim().length === 0) {
       Alert.alert(
         'Clé API requise',
@@ -2818,19 +2819,51 @@ export default function BrowseScreen() {
       return;
     }
 
-    // Vérifier la limite quotidienne de scans
-    const tier = profile?.subscription_tier || 'free';
-    const dailyLimit = SCAN_LIMITS[tier] || SCAN_LIMITS.free;
-    if (scanStats.scansToday >= dailyLimit) {
-      const tierLabels: Record<string, string> = { free: 'Free', gold: 'Gold', platinum: 'Platinum' };
-      Alert.alert(
-        'Limite de scans atteinte',
-        `Votre plan ${tierLabels[tier]} permet ${dailyLimit} scans par jour.\nVous avez déjà utilisé ${scanStats.scansToday} scans aujourd\'hui.\n\n💎 Passez au plan supérieur pour plus de scans !`,
-        [
-          { text: 'OK', style: 'cancel' },
-          { text: 'Voir les plans', onPress: () => router.push('/premium' as any) },
-        ]
-      );
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user?.id;
+      if (!userId) {
+        Alert.alert('Session expirée', 'Veuillez vous reconnecter pour lancer un scan.');
+        return;
+      }
+
+      const { data: tierRow } = await supabase
+        .from('profiles')
+        .select('subscription_tier')
+        .eq('id', userId)
+        .single();
+
+      const tier = tierRow?.subscription_tier || profile?.subscription_tier || 'free';
+      const dailyLimit = SCAN_LIMITS[tier] || SCAN_LIMITS.free;
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const { count, error: countError } = await supabase
+        .from('scans')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('scan_date', todayStart.toISOString());
+
+      if (countError) {
+        Alert.alert('Vérification impossible', 'Impossible de vérifier le quota de scans pour le moment. Réessayez dans quelques secondes.');
+        return;
+      }
+
+      const scansToday = count ?? 0;
+      if (scansToday >= dailyLimit) {
+        const tierLabels: Record<string, string> = { free: 'Free', gold: 'Gold', platinum: 'Platinum' };
+        Alert.alert(
+          'Limite de scans atteinte',
+          `Votre plan ${tierLabels[tier]} permet ${dailyLimit} scans par jour.\nVous avez déjà utilisé ${scansToday} scans aujourd\'hui.\n\n💎 Passez au plan supérieur pour plus de scans !`,
+          [
+            { text: 'OK', style: 'cancel' },
+            { text: 'Voir les plans', onPress: () => router.push('/premium' as any) },
+          ]
+        );
+        return;
+      }
+    } catch (e) {
+      Alert.alert('Vérification impossible', 'Une erreur est survenue pendant la vérification du quota.');
       return;
     }
 
@@ -2842,7 +2875,7 @@ export default function BrowseScreen() {
 
     // Sinon, démarrer directement le scan
     startActualScan();
-  }, [settings.geminiApiKey, showScanTutorial, router, profile, scanStats]);
+  }, [settings.geminiApiKey, showScanTutorial, router, profile]);
 
   const startActualScan = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -3270,7 +3303,7 @@ export default function BrowseScreen() {
                 <Text style={styles.resultEmoji}>🔍</Text>
                 <Text style={styles.resultTitle}>Aucune pépite</Text>
                 <Text style={styles.resultSubtext}>
-                  Aucune bonne affaire détectée cette fois. Essayez de naviguer vers plus d'annonces.
+                  {"Aucune bonne affaire détectée cette fois. Essayez de naviguer vers plus d'annonces."}
                 </Text>
                 <TouchableOpacity
                   style={styles.resultActionBtn}
@@ -3355,7 +3388,7 @@ export default function BrowseScreen() {
                   </View>
                   <Text style={styles.slideTitle}>Recherche Pertinente</Text>
                   <Text style={styles.slideText}>
-                    Assurez-vous d'avoir une bonne recherche ou catégorie active sur le site en question. Plus la sélection est ciblée, meilleures seront les pépites trouvées.
+                    {"Assurez-vous d'avoir une bonne recherche ou catégorie active sur le site en question. Plus la sélection est ciblée, meilleures seront les pépites trouvées."}
                   </Text>
                 </View>
               )}
@@ -3368,7 +3401,7 @@ export default function BrowseScreen() {
                   </View>
                   <Text style={styles.slideTitle}>Lancez le Scan</Text>
                   <Text style={styles.slideText}>
-                    Cliquez sur le bouton SCAN et ne touchez plus à l'écran. L'application va automatiquement capturer et analyser les articles.
+                    {"Cliquez sur le bouton SCAN et ne touchez plus à l'écran. L'application va automatiquement capturer et analyser les articles."}
                   </Text>
                 </View>
               )}
@@ -3379,9 +3412,9 @@ export default function BrowseScreen() {
                   <View style={styles.slideIconContainer}>
                     <Text style={styles.slideIcon}>☕</Text>
                   </View>
-                  <Text style={styles.slideTitle}>Laissez Faire l'App</Text>
+                    <Text style={styles.slideTitle}>{"Laissez Faire l'App"}</Text>
                   <Text style={styles.slideText}>
-                    Pépite prend les captures et analyse automatiquement. Vous pouvez vous détendre pendant ce temps et laisser l'IA faire son travail.
+                      {"Pépite prend les captures et analyse automatiquement. Vous pouvez vous détendre pendant ce temps et laisser l'IA faire son travail."}
                   </Text>
                 </View>
               )}
@@ -3394,7 +3427,7 @@ export default function BrowseScreen() {
                   </View>
                   <Text style={styles.slideTitle}>Récupérez les Résultats</Text>
                   <Text style={styles.slideText}>
-                    Une fois le scan terminé, cliquez sur "Voir les résultats" pour accéder à toutes les pépites trouvées avec leurs marges estimées.
+                    {'Une fois le scan terminé, cliquez sur "Voir les résultats" pour accéder à toutes les pépites trouvées avec leurs marges estimées.'}
                   </Text>
                 </View>
               )}

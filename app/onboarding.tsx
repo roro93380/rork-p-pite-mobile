@@ -75,7 +75,7 @@ export default function OnboardingScreen() {
         Autorisez Pépite{'\n'}pour commencer à{'\n'}chasser
       </Text>
       <Text style={styles.permSubtitle}>
-        Nous avons besoin de quelques permissions pour que l'IA puisse détecter les bonnes affaires en arrière-plan. C'est 100% sécurisé.
+        {"Nous avons besoin de quelques permissions pour que l'IA puisse détecter les bonnes affaires en arrière-plan. C'est 100% sécurisé."}
       </Text>
       <View style={styles.permList}>
         <View style={styles.permItem}>
@@ -83,7 +83,7 @@ export default function OnboardingScreen() {
             <Video size={24} color={Colors.gold} />
           </View>
           <View style={styles.permTextBlock}>
-            <Text style={styles.permItemTitle}>Enregistrement de l'écran</Text>
+            <Text style={styles.permItemTitle}>{"Enregistrement de l'écran"}</Text>
             <Text style={styles.permItemDesc}>
               Pour analyser les annonces dans vos apps de shopping.
             </Text>
@@ -96,7 +96,7 @@ export default function OnboardingScreen() {
           <View style={styles.permTextBlock}>
             <Text style={styles.permItemTitle}>Notifications</Text>
             <Text style={styles.permItemDesc}>
-              Pour vous alerter dès qu'une pépite est trouvée.
+              {"Pour vous alerter dès qu'une pépite est trouvée."}
             </Text>
           </View>
         </View>
@@ -146,7 +146,7 @@ export default function OnboardingScreen() {
             <Text style={styles.tutoNumberText}>3</Text>
           </View>
           <Text style={styles.tutoText}>
-            Glissez "Scan Pépite" dans vos tuiles actives.
+            {'Glissez "Scan Pépite" dans vos tuiles actives.'}
           </Text>
         </View>
       </View>

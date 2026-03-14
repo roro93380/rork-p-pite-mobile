@@ -7,12 +7,16 @@ import React, {
   useRef,
 } from 'react';
 import { Session, User } from '@supabase/supabase-js';
+import { AppState } from 'react-native';
 import { supabase } from '@/services/supabaseClient';
+import { markBootTrace, measureBootStep } from '@/services/bootPerformance';
 import { Profile } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Déconnexion automatique après 3 heures (en millisecondes)
 const AUTO_LOGOUT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+const AUTH_INIT_TIMEOUT_MS = 12000;
+const PROFILE_FETCH_TIMEOUT_MS = 5000;
 
 interface AuthState {
   session: Session | null;
@@ -43,20 +47,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const autoLogoutTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const mountedRef = useRef(true);
+  const latestSessionKeyRef = useRef<string | null>(null);
+
+  const withTimeout = useCallback(async <T,>(promise: Promise<T>, timeoutMs: number) => {
+    return await Promise.race<T>([
+      promise,
+      new Promise<T>((_, reject) => {
+        const timeoutId = setTimeout(() => {
+          clearTimeout(timeoutId);
+          reject(new Error('timeout'));
+        }, timeoutMs);
+      }),
+    ]);
+  }, []);
 
   /* ── fetch profile from Supabase ──────────── */
   const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
+    try {
+      markBootTrace('auth:profile-fetch:start');
+      const { data, error } = await withTimeout(
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single(),
+        PROFILE_FETCH_TIMEOUT_MS
+      );
 
-    if (error) {
+      if (error) {
+        return null;
+      }
+
+      measureBootStep('auth:profile-fetch:done', 'auth:profile-fetch:start');
+      return data as Profile;
+    } catch (_error) {
       return null;
     }
-    return data as Profile;
-  }, []);
+  }, [withTimeout]);
+
+  const applySessionState = useCallback(
+    async (session: Session | null) => {
+      const sessionKey = session?.access_token ?? session?.user?.id ?? null;
+      latestSessionKeyRef.current = sessionKey;
+
+      const profile = session?.user ? await fetchProfile(session.user.id) : null;
+
+      if (!mountedRef.current) {
+        return;
+      }
+
+      if (latestSessionKeyRef.current !== sessionKey) {
+        return;
+      }
+
+      setState({
+        session,
+        user: session?.user ?? null,
+        profile,
+        loading: false,
+      });
+    },
+    [fetchProfile]
+  );
 
   /* ── refresh profile (public) ──────────── */
   const refreshProfile = useCallback(async () => {
@@ -67,54 +120,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /* ── listen to auth changes ──────────── */
   useEffect(() => {
-    let didResolve = false;
+    mountedRef.current = true;
+    let cancelled = false;
+    markBootTrace('auth:init:start');
 
-    // Timeout: if auth takes >10s, stop loading and redirect to login
     const timeout = setTimeout(() => {
-      if (!didResolve) {
-        didResolve = true;
+      if (!cancelled && mountedRef.current) {
+        markBootTrace('auth:init:timeout');
         setState((prev) => (prev.loading ? { ...prev, loading: false } : prev));
       }
-    }, 10000);
+    }, AUTH_INIT_TIMEOUT_MS);
 
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (didResolve) return;
-      didResolve = true;
-      clearTimeout(timeout);
-      let profile: Profile | null = null;
-      if (session?.user) {
-        profile = await fetchProfile(session.user.id);
+    const initializeAuth = async () => {
+      try {
+        markBootTrace('auth:get-session:start');
+        const {
+          data: { session },
+        } = await withTimeout(supabase.auth.getSession(), AUTH_INIT_TIMEOUT_MS - 2000);
+        measureBootStep('auth:get-session:done', 'auth:get-session:start');
+
+        if (!cancelled) {
+          await applySessionState(session);
+        }
+      } catch (_error) {
+        if (!cancelled && mountedRef.current) {
+          setState({
+            session: null,
+            user: null,
+            profile: null,
+            loading: false,
+          });
+        }
+      } finally {
+        clearTimeout(timeout);
       }
-      setState({
-        session,
-        user: session?.user ?? null,
-        profile,
-        loading: false,
-      });
-    });
+    };
 
-    // Subscribe to auth state changes
+    initializeAuth();
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      let profile: Profile | null = null;
-      if (session?.user) {
-        profile = await fetchProfile(session.user.id);
+      if (cancelled) {
+        return;
       }
-      setState({
-        session,
-        user: session?.user ?? null,
-        profile,
-        loading: false,
-      });
+
+      markBootTrace(`auth:event:${session ? 'signed-in' : 'signed-out'}`);
+      await applySessionState(session);
     });
 
     return () => {
+      cancelled = true;
+      mountedRef.current = false;
       clearTimeout(timeout);
       subscription.unsubscribe();
     };
-  }, [fetchProfile]);
+  }, [applySessionState, withTimeout]);
 
   /* ── sign up ──────────── */
   const signUp = useCallback(
@@ -190,6 +251,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading: false,
     });
   }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', async (nextState) => {
+      if (nextState !== 'active') {
+        return;
+      }
+
+      try {
+        const storedLoginTime = await AsyncStorage.getItem('auth_login_time');
+        if (storedLoginTime) {
+          const elapsed = Date.now() - parseInt(storedLoginTime, 10);
+          if (elapsed >= AUTO_LOGOUT_TIMEOUT_MS) {
+            await signOut();
+            return;
+          }
+        }
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session && mountedRef.current) {
+          setState({ session: null, user: null, profile: null, loading: false });
+        }
+      } catch (_error) {
+        if (mountedRef.current) {
+          setState((prev) => ({ ...prev, loading: false }));
+        }
+      }
+    });
+
+    return () => subscription.remove();
+  }, [signOut]);
 
   /* ── auto logout after 3 hours ──────────── */
   useEffect(() => {

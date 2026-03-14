@@ -46,7 +46,7 @@ export default function HelpScreen() {
       ))}
 
       <View style={styles.supportBlock}>
-        <Text style={styles.supportTitle}>Besoin d'aide ?</Text>
+        <Text style={styles.supportTitle}>{"Besoin d'aide ?"}</Text>
         <Text style={styles.supportDesc}>
           Contactez notre support par email pour toute question.
         </Text>

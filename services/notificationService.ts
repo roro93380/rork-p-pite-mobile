@@ -1,7 +1,12 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
+import * as Linking from 'expo-linking';
+import Constants from 'expo-constants';
 import { Pepite } from '@/types';
+import { supabase } from '@/services/supabaseClient';
+
+let listenersInitialized = false;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -43,6 +48,50 @@ export async function setupNotifications(): Promise<boolean> {
         enableLights: true,
         lightColor: '#FFD700',
       });
+
+      await Notifications.setNotificationChannelAsync('updates', {
+        name: 'Mises à jour',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 200, 120, 200],
+        sound: 'default',
+        enableVibrate: true,
+        enableLights: true,
+        lightColor: '#FFD700',
+      });
+    }
+
+    await Notifications.setNotificationCategoryAsync('update_available', [
+      {
+        identifier: 'update_now',
+        buttonTitle: 'Mettre a jour',
+        options: {
+          opensAppToForeground: true,
+        },
+      },
+    ]);
+
+    if (!listenersInitialized) {
+      Notifications.addNotificationResponseReceivedListener(async (response) => {
+        try {
+          const data = response.notification.request.content.data as { updateUrl?: string; link?: string };
+          const actionId = response.actionIdentifier;
+          const updateUrl = data?.updateUrl || data?.link;
+
+          if (!updateUrl) {
+            return;
+          }
+
+          if (
+            actionId === Notifications.DEFAULT_ACTION_IDENTIFIER ||
+            actionId === 'update_now'
+          ) {
+            await Linking.openURL(updateUrl);
+          }
+        } catch (error) {
+          console.warn('[Notifications] Response handler error:', error);
+        }
+      });
+      listenersInitialized = true;
     }
 
     console.log('[Notifications] Setup complete');
@@ -50,6 +99,46 @@ export async function setupNotifications(): Promise<boolean> {
   } catch (error) {
     console.error('[Notifications] Setup error:', error);
     return false;
+  }
+}
+
+export async function registerRemotePushToken(): Promise<string | null> {
+  if (Platform.OS === 'web') return null;
+
+  try {
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ||
+      Constants.easConfig?.projectId;
+
+    if (!projectId) {
+      console.warn('[Notifications] Missing EAS projectId for push token');
+      return null;
+    }
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    const expoPushToken = tokenData.data;
+
+    if (!expoPushToken) {
+      return null;
+    }
+
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        expo_push_token: expoPushToken,
+        expo_push_token_updated_at: new Date().toISOString(),
+      },
+    });
+
+    if (error) {
+      console.warn('[Notifications] Could not save push token in metadata:', error.message);
+      return expoPushToken;
+    }
+
+    console.log('[Notifications] Remote push token registered');
+    return expoPushToken;
+  } catch (error) {
+    console.warn('[Notifications] registerRemotePushToken error:', error);
+    return null;
   }
 }
 

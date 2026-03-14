@@ -45,7 +45,7 @@ export default function NotificationsScreen() {
             : 'Notifications désactivées'}
         </Text>
         <Text style={styles.description}>
-          Recevez une alerte dès qu'une pépite est détectée après un scan.
+          {"Recevez une alerte dès qu'une pépite est détectée après un scan."}
         </Text>
         <View style={styles.toggleRow}>
           <Text style={styles.toggleLabel}>Activer les notifications</Text>

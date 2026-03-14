@@ -5,8 +5,10 @@ import createContextHook from '@nkzw/create-context-hook';
 import { Pepite, AppSettings, ScanSession } from '@/types';
 import { MOCK_PEPITES } from '@/mocks/pepites';
 import { analyzeWithGemini, analyzeWithGeminiVideo, generateFallbackPepites } from '@/services/scanService';
-import { setupNotifications, sendPepiteFoundNotification } from '@/services/notificationService';
+import { setupNotifications, sendPepiteFoundNotification, registerRemotePushToken } from '@/services/notificationService';
 import { supabase } from '@/services/supabaseClient';
+import { useAuth } from '@/contexts/AuthContext';
+import { markBootTrace, measureBootStep } from '@/services/bootPerformance';
 import {
   insertPepites as insertPepitesRemote,
   updatePepiteStatus,
@@ -29,8 +31,17 @@ const DEFAULT_SETTINGS: AppSettings = {
   hasCompletedOnboarding: false,
 };
 
+function generateUuid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export const [PepiteProvider, usePepite] = createContextHook(() => {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
   const [pepites, setPepites] = useState<Pepite[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [isScanning, setIsScanning] = useState<boolean>(false);
@@ -39,7 +50,9 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanSessions, setScanSessions] = useState<ScanSession[]>([]);
   const [hasSynced, setHasSynced] = useState<boolean>(false);
+  const [syncRetryTick, setSyncRetryTick] = useState<number>(0);
   const pendingScanIdRef = useRef<string | null>(null);
+  const isInitialSyncingRef = useRef<boolean>(false);
 
   /** Helper: get Supabase user id (null if not logged in) */
   const getUserId = useCallback(async (): Promise<string | null> => {
@@ -48,17 +61,33 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   }, []);
 
   useEffect(() => {
-    setupNotifications().then((granted) => {
-      console.log('[PepiteProvider] Notifications setup:', granted ? 'granted' : 'denied');
-    });
-  }, []);
+    if (!settings.notificationsEnabled) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      markBootTrace('notifications:setup:start');
+      setupNotifications().then((granted) => {
+        measureBootStep('notifications:setup:done', 'notifications:setup:start');
+        console.log('[PepiteProvider] Notifications setup:', granted ? 'granted' : 'denied');
+        if (granted && session?.user?.id) {
+          registerRemotePushToken();
+        }
+      });
+    }, 2200);
+
+    return () => clearTimeout(timer);
+  }, [settings.notificationsEnabled, session?.user?.id]);
 
   const pepitesQuery = useQuery({
-    queryKey: ['pepites'],
+    queryKey: ['pepites', session?.user?.id ?? 'anon'],
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(STORAGE_KEYS.PEPITES);
       if (stored) {
         return JSON.parse(stored) as Pepite[];
+      }
+      if (session?.user?.id) {
+        return [];
       }
       await AsyncStorage.setItem(STORAGE_KEYS.PEPITES, JSON.stringify(MOCK_PEPITES));
       return MOCK_PEPITES;
@@ -77,7 +106,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
   });
 
   const scanSessionsQuery = useQuery({
-    queryKey: ['scan_sessions'],
+    queryKey: ['scan_sessions', session?.user?.id ?? 'anon'],
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(STORAGE_KEYS.SCAN_SESSIONS);
       if (stored) {
@@ -107,20 +136,37 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
   /* ── Initial sync: pull remote pepites + scans + profile on login ── */
   useEffect(() => {
-    if (hasSynced) return;
-    const sync = async () => {
-      const session = (await supabase.auth.getSession()).data.session;
-      const uid = session?.user?.id;
-      if (!uid) return;
-      setHasSynced(true);
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      setHasSynced(false);
+      return;
+    }
+
+    if (hasSynced || isInitialSyncingRef.current) return;
+    let cancelled = false;
+    isInitialSyncingRef.current = true;
+
+    (async () => {
+      if (cancelled) return;
+
+      markBootTrace('pepite-sync:start');
 
       try {
         // 1. Pull profile → sync API key & onboarding state
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('gemini_api_key, onboarding_completed')
-          .eq('id', uid)
-          .single();
+        const [profileResult, remotePepites, remoteScans] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('gemini_api_key, onboarding_completed')
+            .eq('id', userId)
+            .single(),
+          fetchAllPepites(userId),
+          fetchAllScans(userId),
+        ]);
+
+        if (cancelled) return;
+
+        const profile = profileResult.data;
 
         if (profile) {
           setSettings((prev) => {
@@ -131,7 +177,6 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
             }
             // If remote onboarding is done, mark local as done too
             if (profile.onboarding_completed && !prev.hasCompletedOnboarding) {
-              updates.onboarding_completed = true;
               updates.hasCompletedOnboarding = true;
             }
             if (Object.keys(updates).length === 0) return prev;
@@ -142,7 +187,6 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         }
 
         // 2. Pull remote pepites — add new ones AND update statuses of existing ones
-        const remotePepites = await fetchAllPepites(uid);
         if (remotePepites.length > 0) {
           setPepites((prev) => {
             const localMap = new Map(prev.map((p) => [p.id, p]));
@@ -170,7 +214,6 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         }
 
         // 3. Pull remote scans
-        const remoteScans = await fetchAllScans(uid);
         if (remoteScans.length > 0) {
           setScanSessions((prev) => {
             const localIds = new Set(prev.map((s) => s.id));
@@ -190,7 +233,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
         const localPepites: Pepite[] = stored ? JSON.parse(stored) : [];
         const localOnly = localPepites.filter((p) => !remoteIds.has(p.id));
         if (localOnly.length > 0) {
-          await insertPepitesRemote(localOnly, uid);
+          await insertPepitesRemote(localOnly, userId);
         }
 
         // 5. Push local API key to profile if remote is empty
@@ -198,53 +241,72 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
           await supabase
             .from('profiles')
             .update({ gemini_api_key: settings.geminiApiKey })
-            .eq('id', uid);
+            .eq('id', userId);
         }
 
-        // 6. Pull unread notifications and show them locally
-        try {
-          const { data: notifications } = await supabase
-            .from('notifications')
-            .select('*')
-            .eq('user_id', uid)
-            .eq('read', false)
-            .order('created_at', { ascending: false })
-            .limit(10);
-
-          if (notifications && notifications.length > 0 && settings.notificationsEnabled) {
-            const { Platform } = require('react-native');
-            const Notifications = require('expo-notifications');
-            for (const n of notifications) {
-              if (Platform.OS !== 'web') {
-                await Notifications.scheduleNotificationAsync({
-                  content: {
-                    title: n.title,
-                    body: n.message,
-                    data: { link: n.link },
-                    sound: 'default',
-                  },
-                  trigger: null,
-                });
-              }
-              // Mark as read
-              await supabase
-                .from('notifications')
-                .update({ read: true })
-                .eq('id', n.id);
-            }
-            console.log(`[PepiteProvider] Showed ${notifications.length} remote notifications`);
+        setTimeout(async () => {
+          if (cancelled || !settings.notificationsEnabled) {
+            return;
           }
-        } catch (notifErr) {
-          console.warn('[PepiteProvider] Notification sync error:', notifErr);
-        }
 
+          try {
+            const { data: notifications } = await supabase
+              .from('notifications')
+              .select('*')
+              .eq('user_id', userId)
+              .eq('read', false)
+              .order('created_at', { ascending: false })
+              .limit(10);
+
+            if (notifications && notifications.length > 0) {
+              const { Platform } = require('react-native');
+              const Notifications = require('expo-notifications');
+              for (const n of notifications) {
+                if (Platform.OS !== 'web') {
+                  await Notifications.scheduleNotificationAsync({
+                    content: {
+                      title: n.title,
+                      body: n.message,
+                      data: { link: n.link, updateUrl: n.link },
+                      ...(n.type === 'update' ? { categoryIdentifier: 'update_available' } : {}),
+                      ...(n.type === 'update' ? { channelId: 'updates' } : {}),
+                      sound: 'default',
+                    },
+                    trigger: null,
+                  });
+                }
+
+                await supabase
+                  .from('notifications')
+                  .update({ read: true })
+                  .eq('id', n.id);
+              }
+              console.log(`[PepiteProvider] Showed ${notifications.length} remote notifications`);
+            }
+          } catch (notifErr) {
+            console.warn('[PepiteProvider] Notification sync error:', notifErr);
+          }
+        }, 1500);
+
+        setHasSynced(true);
+        measureBootStep('pepite-sync:done', 'pepite-sync:start');
         console.log(`[PepiteProvider] Sync done: ${remotePepites.length} remote, ${localOnly.length} pushed`);
       } catch (e) {
         console.warn('[PepiteProvider] Sync error:', e);
+        if (!cancelled) {
+          setTimeout(() => {
+            setSyncRetryTick((v) => v + 1);
+          }, 2500);
+        }
+      } finally {
+        isInitialSyncingRef.current = false;
       }
+    })();
+
+    return () => {
+      cancelled = true;
     };
-    sync();
-  }, [hasSynced]);
+  }, [hasSynced, session?.user?.id, settings.geminiApiKey, settings.notificationsEnabled, syncRetryTick]);
 
   const savePepitesMutation = useMutation({
     mutationFn: async (items: Pepite[]) => {
@@ -372,39 +434,42 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
       // Récupérer le tier depuis le profil Supabase
       let userTier = 'free';
-      let userId: string | null = null;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user?.id ?? null;
+      if (!userId) {
+        throw new Error('Session expirée. Veuillez vous reconnecter pour lancer un scan.');
+      }
+
       try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        userId = sessionData.session?.user?.id ?? null;
-        if (userId) {
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('subscription_tier')
-            .eq('id', userId)
-            .single();
-          userTier = profileData?.subscription_tier || 'free';
-        }
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('subscription_tier')
+          .eq('id', userId)
+          .single();
+        userTier = profileData?.subscription_tier || 'free';
       } catch (e) {
         console.warn('[PepiteProvider] Could not fetch tier, defaulting to free');
       }
 
       // Vérifier la limite quotidienne de scans AVANT l'analyse
-      if (userId) {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const { count, error: countError } = await supabase
-          .from('scans')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', userId)
-          .gte('created_at', todayStart.toISOString());
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { count, error: countError } = await supabase
+        .from('scans')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('scan_date', todayStart.toISOString());
 
-        const todayScans = countError ? 0 : (count ?? 0);
-        const dailyLimit = SCAN_LIMITS[userTier] || SCAN_LIMITS.free;
-        console.log(`[PepiteProvider] 📊 Scans today: ${todayScans}/${dailyLimit} (${userTier})`);
+      if (countError) {
+        throw new Error('Impossible de vérifier votre quota de scans. Réessayez dans quelques secondes.');
+      }
 
-        if (todayScans >= dailyLimit) {
-          throw new Error(`Limite quotidienne atteinte (${todayScans}/${dailyLimit} scans). Passez au plan supérieur pour scanner davantage.`);
-        }
+      const todayScans = count ?? 0;
+      const dailyLimit = SCAN_LIMITS[userTier] || SCAN_LIMITS.free;
+      console.log(`[PepiteProvider] 📊 Scans today: ${todayScans}/${dailyLimit} (${userTier})`);
+
+      if (todayScans >= dailyLimit) {
+        throw new Error(`Limite quotidienne atteinte (${todayScans}/${dailyLimit} scans). Passez au plan supérieur pour scanner davantage.`);
       }
 
       const MAX_ITEMS_PER_SCAN = ITEMS_CAPS[userTier] || ITEMS_CAPS.free;
@@ -424,18 +489,20 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       }
 
       // Insérer le scan dans Supabase AVANT l'analyse pour éviter les race conditions
-      const preScanId = Date.now().toString();
+      const preScanId = generateUuid();
       pendingScanIdRef.current = preScanId;
-      if (userId) {
-        await supabase.from('scans').insert({
-          id: preScanId,
-          user_id: userId,
-          source: merchantName,
-          url: '',
-          status: 'pending',
-          pepites_count: 0,
-          scan_date: new Date().toISOString(),
-        });
+      const { error: preInsertError } = await supabase.from('scans').insert({
+        id: preScanId,
+        user_id: userId,
+        source: merchantName,
+        url: '',
+        status: 'pending',
+        pepites_count: 0,
+        scan_date: new Date().toISOString(),
+      });
+      if (preInsertError) {
+        pendingScanIdRef.current = null;
+        throw new Error('Impossible de réserver un scan sur le serveur. Réessayez.');
       }
 
       let results: any[] = [];

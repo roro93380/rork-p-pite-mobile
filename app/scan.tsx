@@ -300,7 +300,7 @@ export default function ScanScreen() {
           </View>
 
           <Text style={styles.setupSubtitle}>
-            Choisissez un site, naviguez sur les annonces, et l'IA capture automatiquement votre écran.
+            {"Choisissez un site, naviguez sur les annonces, et l'IA capture automatiquement votre écran."}
           </Text>
 
           <View style={styles.urlInputRow}>
@@ -363,7 +363,7 @@ export default function ScanScreen() {
               <View style={styles.webFallback}>
                 <Globe size={48} color={Colors.textMuted} />
                 <Text style={styles.webFallbackText}>
-                  Le scan WebView n'est pas disponible sur le web.{'\n'}Utilisez l'app mobile (Expo Go).
+                  {"Le scan WebView n'est pas disponible sur le web."}{'\n'}{"Utilisez l'app mobile (Expo Go)."}
                 </Text>
               </View>
             ) : (
@@ -467,7 +467,7 @@ export default function ScanScreen() {
           <Text style={styles.doneSubtitle}>
             {lastScanResults.length > 0
               ? `${lastScanResults.length} pépite${lastScanResults.length > 1 ? 's' : ''} détectée${lastScanResults.length > 1 ? 's' : ''}\n+${formattedProfit}€ de profit potentiel`
-              : 'Essayez de scroller plus lentement sur les annonces.'}
+              : "Essayez de scroller plus lentement sur les annonces."}
           </Text>
 
           {lastScanResults.length > 0 && (
@@ -505,7 +505,7 @@ export default function ScanScreen() {
       {phase === 'error' && (
         <View style={styles.errorView}>
           <AlertCircle size={64} color={Colors.danger} />
-          <Text style={styles.errorTitle}>Erreur d'analyse</Text>
+          <Text style={styles.errorTitle}>{"Erreur d'analyse"}</Text>
           <Text style={styles.errorSubtitle}>
             {scanError ?? 'Une erreur est survenue. Veuillez réessayer.'}
           </Text>

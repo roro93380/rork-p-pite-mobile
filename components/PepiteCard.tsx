@@ -152,7 +152,7 @@ export default React.memo(function PepiteCard({
           activeOpacity={0.8}
         >
           <ExternalLink size={16} color="#000" />
-          <Text style={styles.openButtonText}>Ouvrir l'annonce</Text>
+          <Text style={styles.openButtonText}>{"Ouvrir l'annonce"}</Text>
         </TouchableOpacity>
 
         <View style={styles.iconActions}>

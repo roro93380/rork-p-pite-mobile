@@ -46,11 +46,9 @@ export default function ApiKeyScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
-        <Text style={styles.heading}>Configuration de l'IA</Text>
+        <Text style={styles.heading}>{"Configuration de l'IA"}</Text>
         <Text style={styles.description}>
-          Entrez votre clé API Gemini pour permettre à Pépite d'analyser les
-          images et de trouver les bonnes affaires. C'est sécurisé et gratuit
-          pour un usage personnel.
+          {"Entrez votre clé API Gemini pour permettre à Pépite d'analyser les images et de trouver les bonnes affaires. C'est sécurisé et gratuit pour un usage personnel."}
         </Text>
 
         <View style={styles.inputContainer}>

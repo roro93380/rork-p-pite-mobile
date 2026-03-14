@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1a1a2e"
+      "backgroundColor": "#000000"
     },
     "ios": {
       "supportsTablet": false,
@@ -24,7 +24,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#1a1a2e"
+        "backgroundColor": "#000000"
       },
       "package": "fr.ppite.mobile",
       "permissions": [
@@ -41,6 +41,15 @@
         "expo-router",
         {
           "origin": "https://ppite.fr/"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#000000",
+          "imageWidth": 220
         }
       ],
       "expo-font",
