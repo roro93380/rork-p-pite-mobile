@@ -33,7 +33,7 @@ export default function BootSplash({ onReady }: BootSplashProps) {
           resizeMode="contain"
           style={styles.logo}
         />
-        <Text style={styles.slogan}>Detectez les meilleures affaires</Text>
+        <Text style={styles.slogan}>Détectez les meilleures affaires</Text>
         <ActivityIndicator size="small" color={Colors.gold} style={styles.spinner} />
       </View>
     </View>

@@ -10,6 +10,7 @@ import { usePepite } from '@/providers/PepiteProvider';
 
 export default function FavoritesScreen() {
   const insets = useSafeAreaInsets();
+  const bottomSpacing = insets.bottom + 24;
   const { favoritePepites, toggleFavorite, trashPepite } = usePepite();
 
   const isEmpty = favoritePepites.length === 0;
@@ -39,7 +40,7 @@ export default function FavoritesScreen() {
               onTrash={trashPepite}
             />
           ))}
-          <View style={styles.feedEnd} />
+          <View style={[styles.feedEnd, { height: bottomSpacing }]} />
         </ScrollView>
       )}
     </View>

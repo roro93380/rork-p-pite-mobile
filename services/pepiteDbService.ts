@@ -157,12 +157,18 @@ export async function emptyTrashRemote(userId: string): Promise<void> {
 }
 
 /** Fetch all pepites for a user from Supabase */
-export async function fetchAllPepites(userId: string): Promise<Pepite[]> {
-  const { data, error } = await supabase
+export async function fetchAllPepites(userId: string, tier: string = 'free'): Promise<Pepite[]> {
+  let query = supabase
     .from('pepites')
     .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+    .eq('user_id', userId);
+  // Historique 7 jours pour Free, illimité pour Gold/Platinum
+  if (tier === 'free') {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    query = query.gte('created_at', sevenDaysAgo.toISOString());
+  }
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     console.warn('[pepiteDb] fetchAllPepites error:', error.message);

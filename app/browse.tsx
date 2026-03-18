@@ -15,7 +15,7 @@ import {
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ArrowLeft, Square, Zap, Shield, Video, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, Square, Zap, Shield, Camera, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { captureRef } from 'react-native-view-shot';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -2440,6 +2440,7 @@ if (Platform.OS !== 'web') {
 export default function BrowseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const bottomSpacing = Math.max(insets.bottom, 12);
   const { url, name, source } = useLocalSearchParams<{
     url: string;
     name: string;
@@ -3092,7 +3093,7 @@ export default function BrowseScreen() {
             activeOpacity={0.8}
             testID="start-scan-btn"
           >
-            <Video size={16} color="#000" />
+            <Camera size={16} color="#000" />
             <Text style={styles.scanStartText}>SCAN</Text>
           </TouchableOpacity>
         ) : (
@@ -3131,7 +3132,7 @@ export default function BrowseScreen() {
         )}
       </Animated.View>
 
-      <View style={styles.webviewContainer}>
+      <View style={[styles.webviewContainer, { paddingBottom: bottomSpacing }] }>
         {Platform.OS !== 'web' && WebViewComponent ? (
           <View ref={webViewContainerRef} style={styles.webviewInner} collapsable={false}>
           <WebViewComponent
@@ -3188,6 +3189,7 @@ export default function BrowseScreen() {
             cacheEnabled={true}
             overScrollMode="never"
             allowsBackForwardNavigationGestures={true}
+            forceDarkAllowed={true}
           />
           </View>
         ) : (
@@ -3229,7 +3231,9 @@ export default function BrowseScreen() {
       </View>
 
       {showResults && (
-        <Animated.View style={[styles.resultsOverlay, { opacity: overlayFade }]}>
+        <Animated.View
+          style={[styles.resultsOverlay, { opacity: overlayFade, paddingBottom: insets.bottom + 24 }]}
+        >
           <View style={styles.resultsCard}>
             {isAnalyzing ? (
               <View style={styles.analyzingContainer}>
@@ -3370,7 +3374,7 @@ export default function BrowseScreen() {
         animationType="fade"
         onRequestClose={() => setShowScanTutorial(false)}
       >
-        <View style={styles.tutorialOverlay}>
+        <View style={[styles.tutorialOverlay, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.tutorialModal}>
             {/* Header with Title */}
             <View style={styles.tutorialHeader}>

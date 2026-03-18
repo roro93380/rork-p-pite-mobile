@@ -17,7 +17,7 @@ import Colors from '@/constants/colors';
 import LogoHeader from '@/components/LogoHeader';
 import GoldButton from '@/components/GoldButton';
 import { useAuth } from '@/contexts/AuthContext';
-import { startCheckout, openCustomerPortal, cancelSubscription, reactivateSubscription, getSubscriptionStatus, PlanId } from '@/services/stripeService';
+import { startCheckout, openCustomerPortal, cancelSubscription, reactivateSubscription, getSubscriptionStatus, PlanId, BillingPeriod } from '@/services/stripeService';
 
 interface PlanFeature {
   label: string;
@@ -26,7 +26,12 @@ interface PlanFeature {
 
 interface Plan {
   name: string;
-  price: string;
+  priceMonthly: string;
+  priceAnnual: string;
+  originalPriceMonthly: string | null;
+  originalPriceAnnual: string | null;
+  annualTotal: string | null;
+  savingPct: string | null;
   period: string;
   features: PlanFeature[];
   highlighted: boolean;
@@ -35,7 +40,12 @@ interface Plan {
 const plans: Plan[] = [
   {
     name: 'FREE',
-    price: '0€',
+    priceMonthly: '0€',
+    priceAnnual: '0€',
+    originalPriceMonthly: null,
+    originalPriceAnnual: null,
+    annualTotal: null,
+    savingPct: null,
     period: '',
     highlighted: false,
     features: [
@@ -47,7 +57,12 @@ const plans: Plan[] = [
   },
   {
     name: 'GOLD',
-    price: '9,99€',
+    priceMonthly: '9,99€',
+    priceAnnual: '7,99€',
+    originalPriceMonthly: '14,99€',
+    originalPriceAnnual: '9,99€',
+    annualTotal: '95,88€/an',
+    savingPct: '-20%',
     period: '/ mois',
     highlighted: true,
     features: [
@@ -61,7 +76,12 @@ const plans: Plan[] = [
   },
   {
     name: 'PLATINUM',
-    price: '29,99€',
+    priceMonthly: '29,99€',
+    priceAnnual: '23,99€',
+    originalPriceMonthly: '39,99€',
+    originalPriceAnnual: '29,99€',
+    annualTotal: '287,88€/an',
+    savingPct: '-20%',
     period: '/ mois',
     highlighted: false,
     features: [
@@ -76,7 +96,12 @@ const plans: Plan[] = [
   },
   {
     name: 'ENTREPRISE',
-    price: 'Sur devis',
+    priceMonthly: 'Sur devis',
+    priceAnnual: 'Sur devis',
+    originalPriceMonthly: null,
+    originalPriceAnnual: null,
+    annualTotal: null,
+    savingPct: null,
     period: '',
     highlighted: false,
     features: [
@@ -95,6 +120,7 @@ export default function PremiumScreen() {
   const router = useRouter();
   const { isPremium, profile, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [isAnnual, setIsAnnual] = useState(false);
 
   const handleSubscribe = useCallback(async (planName: string) => {
     if (Platform.OS !== 'web') {
@@ -107,8 +133,9 @@ export default function PremiumScreen() {
     }
 
     const planId: PlanId = planName === 'GOLD' ? 'gold' : 'platinum';
+    const billingPeriod: BillingPeriod = isAnnual ? 'annual' : 'monthly';
     setLoading(true);
-    const { success, error } = await startCheckout(planId);
+    const { success, error } = await startCheckout(planId, billingPeriod);
     setLoading(false);
 
     if (error) {
@@ -181,7 +208,14 @@ export default function PremiumScreen() {
         ]
       );
     } else {
-      // Active → offer cancel
+      // Active → offer cancel with survey
+      const CANCEL_REASONS = [
+        'Trop cher',
+        'Pas assez de fonctionnalités',
+        'Alternative trouvée',
+        'Plus utilisé',
+        'Problèmes techniques',
+      ];
       Alert.alert(
         'Gérer mon abonnement',
         `Plan ${tier.toUpperCase()} actif.\nProchain renouvellement : ${endDate}`,
@@ -192,25 +226,37 @@ export default function PremiumScreen() {
             style: 'destructive',
             onPress: () => {
               Alert.alert(
-                'Confirmer l\'annulation ?',
-                `Votre abonnement restera actif jusqu'au ${endDate}. Après cette date, vous passerez au plan Free (3 scans/jour, 30 annonces/scan).`,
+                'Pourquoi annulez-vous ?',
+                'Aidez-nous à nous améliorer.',
                 [
-                  { text: 'Non, garder', style: 'cancel' },
-                  {
-                    text: 'Oui, annuler',
-                    style: 'destructive',
-                    onPress: async () => {
-                      setLoading(true);
-                      const result = await cancelSubscription();
-                      setLoading(false);
-                      if (result.success) {
-                        Alert.alert('Annulé', result.message || 'Votre abonnement sera annulé en fin de période.');
-                        await refreshProfile();
-                      } else {
-                        Alert.alert('Erreur', result.error || 'Impossible d\'annuler.');
-                      }
+                  ...CANCEL_REASONS.map((reason) => ({
+                    text: reason,
+                    onPress: () => {
+                      Alert.alert(
+                        'Confirmer l\'annulation ?',
+                        `Raison : ${reason}\n\nVotre abonnement restera actif jusqu'au ${endDate}. Après cette date, vous passerez au plan Free.`,
+                        [
+                          { text: 'Non, garder', style: 'cancel' as const },
+                          {
+                            text: 'Oui, annuler',
+                            style: 'destructive' as const,
+                            onPress: async () => {
+                              setLoading(true);
+                              const result = await cancelSubscription();
+                              setLoading(false);
+                              if (result.success) {
+                                Alert.alert('Annulé', result.message || 'Votre abonnement sera annulé en fin de période.');
+                                await refreshProfile();
+                              } else {
+                                Alert.alert('Erreur', result.error || 'Impossible d\'annuler.');
+                              }
+                            },
+                          },
+                        ]
+                      );
                     },
-                  },
+                  })),
+                  { text: 'Revenir', style: 'cancel' },
                 ]
               );
             },
@@ -218,7 +264,7 @@ export default function PremiumScreen() {
         ]
       );
     }
-  }, [refreshProfile]);
+  }, [refreshProfile, isAnnual]);
 
   return (
     <View style={styles.screen}>
@@ -242,7 +288,27 @@ export default function PremiumScreen() {
           le potentiel de Pépite.
         </Text>
 
-        {plans.map((plan) => (
+        {/* Annual/Monthly toggle */}
+        <View style={styles.toggleRow}>
+          <Text style={[styles.toggleLabel, !isAnnual && styles.toggleLabelActive]}>Mensuel</Text>
+          <TouchableOpacity
+            onPress={() => setIsAnnual(!isAnnual)}
+            style={[styles.toggleTrack, isAnnual && styles.toggleTrackActive]}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.toggleThumb, isAnnual && styles.toggleThumbActive]} />
+          </TouchableOpacity>
+          <Text style={[styles.toggleLabel, isAnnual && styles.toggleLabelActive]}>Annuel</Text>
+          <View style={styles.saveBadge}>
+            <Text style={styles.saveBadgeText}>-20%</Text>
+          </View>
+        </View>
+
+        {plans.map((plan) => {
+          const displayPrice = isAnnual ? plan.priceAnnual : plan.priceMonthly;
+          const originalPrice = isAnnual ? plan.originalPriceAnnual : plan.originalPriceMonthly;
+
+          return (
           <View
             key={plan.name}
             style={[
@@ -260,10 +326,21 @@ export default function PremiumScreen() {
                 {plan.name}
               </Text>
               <View style={styles.priceRow}>
-                <Text style={styles.planPrice}>{plan.price}</Text>
+                {originalPrice && (
+                  <Text style={styles.originalPrice}>{originalPrice}</Text>
+                )}
+                <Text style={styles.planPrice}>{displayPrice}</Text>
                 <Text style={styles.planPeriod}>{plan.period}</Text>
               </View>
             </View>
+
+            {isAnnual && plan.annualTotal && (
+              <View style={styles.annualBadge}>
+                <Text style={styles.annualBadgeText}>
+                  {plan.annualTotal} — Économisez {plan.savingPct}
+                </Text>
+              </View>
+            )}
 
             {plan.features.map((feature, idx) => (
               <View key={idx} style={styles.featureRow}>
@@ -282,7 +359,8 @@ export default function PremiumScreen() {
               disabled={plan.name === 'FREE'}
             />
           </View>
-        ))}
+          );
+        })}
 
         <Text style={styles.secureText}>
           Paiement sécurisé par Stripe. Annulation facile.
@@ -364,6 +442,12 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     gap: 4,
   },
+  originalPrice: {
+    color: Colors.textMuted,
+    fontSize: 15,
+    textDecorationLine: 'line-through',
+    marginRight: 4,
+  },
   planPrice: {
     color: Colors.text,
     fontSize: 22,
@@ -415,5 +499,64 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
+  toggleLabel: {
+    color: Colors.textMuted,
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  toggleLabelActive: {
+    color: Colors.text,
+  },
+  toggleTrack: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.surfaceLight,
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  toggleTrackActive: {
+    backgroundColor: Colors.gold,
+  },
+  toggleThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Colors.text,
+  },
+  toggleThumbActive: {
+    alignSelf: 'flex-end',
+  },
+  saveBadge: {
+    backgroundColor: '#22c55e20',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  saveBadgeText: {
+    color: '#22c55e',
+    fontSize: 12,
+    fontWeight: '700' as const,
+  },
+  annualBadge: {
+    backgroundColor: '#22c55e15',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 12,
+    alignSelf: 'flex-start',
+  },
+  annualBadgeText: {
+    color: '#22c55e',
+    fontSize: 12,
+    fontWeight: '600' as const,
   },
 });

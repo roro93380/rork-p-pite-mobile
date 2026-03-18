@@ -383,21 +383,24 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function callGeminiApi(apiKey: string, parts: GeminiPart[], isVideo: boolean = false): Promise<GeminiResponse> {
-  const requestBody = {
-    contents: [
-      {
-        parts,
-      },
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      topK: 40,
-      topP: 0.95,
-      maxOutputTokens: 65536,
-      responseMimeType: 'application/json',
-    },
+async function callGeminiApi(apiKey: string, parts: GeminiPart[], isVideo: boolean = false, tools?: any[]): Promise<GeminiResponse> {
+  const generationConfig: any = {
+    temperature: 0.2,
+    topK: 40,
+    topP: 0.95,
+    maxOutputTokens: 65536,
   };
+  // When using tools (e.g. google_search), don't force JSON mime type
+  if (!tools || tools.length === 0) {
+    generationConfig.responseMimeType = 'application/json';
+  }
+  const requestBody: any = {
+    contents: [{ parts }],
+    generationConfig,
+  };
+  if (tools && tools.length > 0) {
+    requestBody.tools = tools;
+  }
 
   console.log(`[ScanService] Calling Gemini API with ${parts.length} parts`);
 
@@ -555,6 +558,149 @@ export async function analyzeWithGemini(
   console.log('[ScanService] Gemini text analysis response received');
 
   return parseGeminiResponse(data, merchantName);
+}
+
+export interface PhotoReference {
+  source: string;
+  title: string;
+  description: string;
+  price: number;
+  url: string;
+  imageUrl: string;
+}
+
+export interface PhotoEstimation {
+  title: string;
+  buyPrice: number;
+  sellPrice: number;
+  profit: number;
+  score: number;
+  description: string;
+  condition: string;
+  year: string;
+  rarity: string;
+  references: PhotoReference[];
+}
+
+export async function analyzePhotoWithGemini(
+  apiKey: string,
+  photoBase64: string,
+): Promise<PhotoEstimation> {
+  if (!apiKey || apiKey.trim().length === 0) {
+    throw new Error('Clé API Gemini non configurée. Allez dans Réglages > Clé API pour la configurer.');
+  }
+
+  const prompt = `Tu es un EXPERT en estimation d'objets de valeur avec 20 ans d'expérience.
+
+Tu reçois la PHOTO d'un objet prise par l'utilisateur. Ton rôle est d'identifier précisément l'objet et d'estimer sa valeur marchande.
+
+Tu as accès à la recherche Google. UTILISE-LA OBLIGATOIREMENT pour :
+- Trouver des produits RÉELLEMENT en vente similaires à l'objet photographié
+- Obtenir les vrais prix du marché actuel
+- Récupérer les URLs RÉELLES des annonces trouvées
+- Récupérer les URLs des IMAGES des produits trouvés
+
+MISSION :
+1. Identifie l'objet (marque, modèle, époque, matériaux)
+2. RECHERCHE sur Google des produits similaires en vente (eBay, Leboncoin, Vinted, Vestiaire Collective, Chrono24, Amazon, etc.)
+3. Estime un prix d'achat raisonnable basé sur les résultats de recherche réels
+4. Estime un prix de vente réaliste basé sur les résultats de recherche réels
+5. Évalue la qualité de l'affaire sur 10
+6. Retourne EXACTEMENT 4 produits de référence RÉELS trouvés via ta recherche, avec leurs VRAIES URLs, images et descriptions
+
+Réponds UNIQUEMENT en JSON valide, sans markdown, sans backticks :
+{
+  "title": "Nom complet de l'objet identifié (marque + modèle + détails)",
+  "buyPrice": 0,
+  "sellPrice": 0,
+  "profit": 0,
+  "score": 0,
+  "description": "Analyse détaillée de l'objet et pourquoi c'est intéressant",
+  "condition": "État estimé visuellement (Neuf, Très bon état, Bon état, État correct, À restaurer)",
+  "year": "Année ou décennie estimée",
+  "rarity": "Niveau de rareté (Commun, Peu commun, Rare, Très rare, Exceptionnel)",
+  "references": [
+    {
+      "source": "Nom du site (ex: eBay)",
+      "title": "Titre EXACT de l'annonce trouvée",
+      "description": "Description courte du produit (état, caractéristiques clés)",
+      "price": 0,
+      "url": "URL RÉELLE COMPLÈTE de l'annonce trouvée via la recherche Google",
+      "imageUrl": "URL RÉELLE de l'image du produit trouvé (URL directe vers l'image JPG/PNG/WebP)"
+    },
+    {
+      "source": "Nom du site (ex: Leboncoin)",
+      "title": "Titre EXACT de l'annonce",
+      "description": "Description courte",
+      "price": 0,
+      "url": "URL RÉELLE de l'annonce",
+      "imageUrl": "URL de l'image du produit"
+    },
+    {
+      "source": "Nom du site (ex: Vinted)",
+      "title": "Titre EXACT de l'annonce",
+      "description": "Description courte",
+      "price": 0,
+      "url": "URL RÉELLE de l'annonce",
+      "imageUrl": "URL de l'image du produit"
+    },
+    {
+      "source": "Nom du site (ex: Chrono24)",
+      "title": "Titre EXACT de l'annonce",
+      "description": "Description courte",
+      "price": 0,
+      "url": "URL RÉELLE de l'annonce",
+      "imageUrl": "URL de l'image du produit"
+    }
+  ]
+}
+
+RÈGLES CRITIQUES :
+- UTILISE la recherche Google pour trouver de VRAIS produits en vente
+- Les URLs dans "url" doivent être des liens RÉELS trouvés dans les résultats de recherche (PAS inventés)
+- Les URLs dans "imageUrl" doivent être des liens RÉELS vers des images de produits
+- Le profit = sellPrice - buyPrice
+- Le score reflète la qualité de l'affaire (1=mauvais, 10=exceptionnel)
+- Fournis TOUJOURS exactement 4 références avec des produits RÉELS trouvés en ligne
+- Les prix doivent être en euros
+- Sois précis et réaliste dans tes estimations basées sur les vrais prix du marché`;
+
+  const parts: GeminiPart[] = [
+    { text: prompt },
+    { inlineData: { mimeType: 'image/jpeg', data: photoBase64 } },
+  ];
+
+  // Enable Google Search grounding for real product references
+  const tools = [{ google_search: {} }];
+
+  const response = await callGeminiApi(apiKey, parts, false, tools);
+
+  const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error('Aucune réponse de Gemini. Réessayez.');
+  }
+
+  try {
+    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const result = JSON.parse(cleaned) as PhotoEstimation;
+    // Ensure profit is coherent
+    if (!result.profit && result.sellPrice && result.buyPrice) {
+      result.profit = result.sellPrice - result.buyPrice;
+    }
+    // Ensure 4 references with all fields
+    if (!result.references) result.references = [];
+    result.references = result.references.map(ref => ({
+      source: ref.source || '',
+      title: ref.title || ref.source || '',
+      description: ref.description || '',
+      price: ref.price || 0,
+      url: ref.url || '',
+      imageUrl: ref.imageUrl || '',
+    }));
+    return result;
+  } catch {
+    throw new Error('Réponse IA invalide. Réessayez avec une photo plus nette.');
+  }
 }
 
 export function generateFallbackPepites(merchantName: string): Pepite[] {

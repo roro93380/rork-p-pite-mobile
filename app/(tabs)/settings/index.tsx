@@ -25,6 +25,7 @@ import {
   UserX,
   Gift,
   Download,
+  Mail,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -64,6 +65,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { settings, updateSettings } = usePepite();
   const { profile, signOut, user, deleteAccount } = useAuth();
+  const bottomSpacing = insets.bottom + 24;
 
   const handleToggleNotifications = useCallback(
     (value: boolean) => {
@@ -178,6 +180,7 @@ export default function SettingsScreen() {
 
       <ScrollView
         style={styles.content}
+        contentContainerStyle={{ paddingBottom: bottomSpacing }}
         showsVerticalScrollIndicator={false}
       >
         {/* Account section */}
@@ -262,6 +265,25 @@ export default function SettingsScreen() {
           onPress={() => router.push('/settings/help')}
         />
 
+        {(profile?.subscription_tier === 'gold' || profile?.subscription_tier === 'platinum') && (
+          <SettingsRow
+            icon={<Mail size={22} color={Colors.gold} />}
+            label="Support prioritaire"
+            onPress={() => Linking.openURL('mailto:support-premium@ppite.fr?subject=Support%20Premium%20Pépite')}
+          />
+        )}
+
+        <SettingsRow
+          icon={<Bell size={22} color={Colors.gold} />}
+          label="Alertes personnalisées"
+          onPress={() => router.push('/alert-preferences' as any)}
+          trailing={
+            profile?.subscription_tier === 'platinum'
+              ? <ChevronRight size={20} color={Colors.gold} />
+              : <Text style={{ color: Colors.textSecondary, fontSize: 11, fontWeight: '600' }}>Platinum</Text>
+          }
+        />
+
         <View style={styles.versionBlock}>
           <Text style={styles.versionText}>ppite.fr v1.0.0</Text>
         </View>
@@ -273,7 +295,7 @@ export default function SettingsScreen() {
           onPress={handleDeleteAccount}
           trailing={<ChevronRight size={20} color={Colors.danger} />}
         />
-        <View style={{ height: 40 }} />
+        <View style={{ height: bottomSpacing }} />
       </ScrollView>
     </View>
   );

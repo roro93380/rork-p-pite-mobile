@@ -128,12 +128,6 @@ export default React.memo(function PepiteCard({
             contentFit="cover"
             transition={300}
           />
-          <View style={styles.priceOverlay}>
-            <Text style={styles.sellerPrice}>
-              Prix Vendeur: {formatPrice(pepite.sellerPrice)}
-            </Text>
-            <Text style={styles.profit}>+{formatPrice(pepite.profit)}</Text>
-          </View>
           <View style={styles.sourceTag}>
             <Text style={styles.sourceText}>{pepite.source}</Text>
           </View>
@@ -144,6 +138,16 @@ export default React.memo(function PepiteCard({
           )}
         </View>
       </TouchableOpacity>
+
+      <View style={styles.contentBlock}>
+        <Text style={styles.title} numberOfLines={2}>
+          {pepite.title}
+        </Text>
+        <Text style={styles.sellerPrice}>
+          Prix Vendeur: {formatPrice(pepite.sellerPrice)}
+        </Text>
+        <Text style={styles.profit}>+{formatPrice(pepite.profit)}</Text>
+      </View>
 
       <View style={styles.actionsRow}>
         <TouchableOpacity
@@ -194,30 +198,33 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     width: CARD_WIDTH,
-    height: CARD_WIDTH * 0.85,
+    height: CARD_WIDTH * 0.55,
     position: 'relative',
   },
   image: {
     width: '100%',
     height: '100%',
   },
-  priceOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+  contentBlock: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 6,
+    gap: 6,
+  },
+  title: {
+    color: Colors.text,
+    fontSize: 20,
+    fontWeight: '800' as const,
+    lineHeight: 26,
   },
   sellerPrice: {
-    color: '#CCCCCC',
+    color: Colors.textSecondary,
     fontSize: 14,
     fontWeight: '500' as const,
   },
   profit: {
     color: Colors.gold,
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: '900' as const,
     letterSpacing: -0.5,
   },
@@ -252,7 +259,9 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 20,
     gap: 10,
   },
   openButton: {

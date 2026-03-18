@@ -9,6 +9,8 @@ interface EmptyStateProps {
   subtitle: string;
   actionLabel?: string;
   onAction?: () => void;
+  premiumLabel?: string;
+  onPremium?: () => void;
 }
 
 export default React.memo(function EmptyState({
@@ -17,6 +19,8 @@ export default React.memo(function EmptyState({
   subtitle,
   actionLabel,
   onAction,
+  premiumLabel,
+  onPremium,
 }: EmptyStateProps) {
   return (
     <View style={styles.container}>
@@ -28,6 +32,14 @@ export default React.memo(function EmptyState({
           title={actionLabel}
           onPress={onAction}
           style={styles.button}
+        />
+      )}
+      {premiumLabel && onPremium && (
+        <GoldButton
+          title={premiumLabel}
+          onPress={onPremium}
+          variant="outlined"
+          style={styles.premiumButton}
         />
       )}
     </View>
@@ -60,6 +72,10 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: 28,
+    width: '100%',
+  },
+  premiumButton: {
+    marginTop: 12,
     width: '100%',
   },
 });

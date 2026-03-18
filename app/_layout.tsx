@@ -109,6 +109,14 @@ function RootLayoutNav() {
         options={{ headerShown: false, animation: 'fade' }}
       />
       <Stack.Screen
+        name="photo-scan"
+        options={{ headerShown: false, animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen
+        name="photo-result"
+        options={{ headerShown: false, animation: 'fade' }}
+      />
+      <Stack.Screen
         name="premium"
         options={{ presentation: 'modal', headerShown: false }}
       />

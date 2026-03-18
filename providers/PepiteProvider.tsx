@@ -154,19 +154,22 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
 
       try {
         // 1. Pull profile → sync API key & onboarding state
-        const [profileResult, remotePepites, remoteScans] = await Promise.all([
+        const [profileResult, remoteScans] = await Promise.all([
           supabase
             .from('profiles')
-            .select('gemini_api_key, onboarding_completed')
+            .select('gemini_api_key, onboarding_completed, subscription_tier')
             .eq('id', userId)
             .single(),
-          fetchAllPepites(userId),
           fetchAllScans(userId),
         ]);
 
         if (cancelled) return;
 
         const profile = profileResult.data;
+        const userTier = profile?.subscription_tier || 'free';
+
+        // Fetch pepites with tier-based history filtering
+        const remotePepites = await fetchAllPepites(userId, userTier);
 
         if (profile) {
           setSettings((prev) => {
@@ -737,6 +740,66 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     setScanError(null);
   }, []);
 
+  /** Record a photo scan in the DB so it counts toward the daily quota */
+  const recordPhotoScan = useCallback(async (pepitesCount: number, totalProfit: number) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData.session?.user?.id ?? null;
+    if (!userId) return;
+
+    // Check daily limit
+    const SCAN_LIMITS: Record<string, number> = { free: 3, gold: 10, platinum: 30 };
+    let userTier = 'free';
+    try {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('subscription_tier')
+        .eq('id', userId)
+        .single();
+      userTier = profileData?.subscription_tier || 'free';
+    } catch {}
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const { count } = await supabase
+      .from('scans')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('scan_date', todayStart.toISOString());
+
+    const todayScans = count ?? 0;
+    const dailyLimit = SCAN_LIMITS[userTier] || 3;
+    if (todayScans >= dailyLimit) {
+      throw new Error(`Limite quotidienne atteinte (${todayScans}/${dailyLimit} scans). Passez au plan supérieur.`);
+    }
+
+    const scanId = generateUuid();
+    await supabase.from('scans').insert({
+      id: scanId,
+      user_id: userId,
+      source: 'Scan Photo',
+      url: '',
+      status: 'completed',
+      pepites_count: pepitesCount,
+      scan_date: new Date().toISOString(),
+    });
+
+    // Update local scan sessions
+    const session: ScanSession = {
+      id: scanId,
+      date: new Date().toISOString(),
+      duration: 0,
+      pepitesFound: pepitesCount,
+      totalProfit,
+      source: 'Scan Photo',
+    };
+    const stored = await AsyncStorage.getItem(STORAGE_KEYS.SCAN_SESSIONS);
+    const sessions: ScanSession[] = stored ? JSON.parse(stored) : [];
+    const updated = [session, ...sessions].slice(0, 200);
+    await AsyncStorage.setItem(STORAGE_KEYS.SCAN_SESSIONS, JSON.stringify(updated));
+    setScanSessions(updated);
+    queryClient.invalidateQueries({ queryKey: ['scan_sessions'] });
+  }, [queryClient]);
+
   const stopScan = useCallback((merchantName: string, pageContent: string, screenshots?: string[], extractedItems?: Array<{title: string; link: string; image: string; price: string}>) => {
     setIsScanning(false);
     setScanTimer(0);
@@ -795,6 +858,31 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       ? activePepites.reduce((sum, p) => sum + (p.profit ?? 0), 0) / totalPepitesAnalyzed
       : 0;
 
+    // Streak: consecutive days with at least 1 scan (ending today or yesterday)
+    let streakDays = 0;
+    if (scanSessions.length > 0) {
+      const scanDays = new Set<string>();
+      scanSessions.forEach(s => {
+        const d = new Date(s.date);
+        scanDays.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+      });
+      const check = new Date(now);
+      // Check if today has scans, if not start from yesterday
+      const todayKey = `${check.getFullYear()}-${check.getMonth()}-${check.getDate()}`;
+      if (!scanDays.has(todayKey)) {
+        check.setDate(check.getDate() - 1);
+      }
+      while (true) {
+        const key = `${check.getFullYear()}-${check.getMonth()}-${check.getDate()}`;
+        if (scanDays.has(key)) {
+          streakDays++;
+          check.setDate(check.getDate() - 1);
+        } else {
+          break;
+        }
+      }
+    }
+
     return {
       scansToday,
       scansThisWeek,
@@ -805,6 +893,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
       topSource,
       bestDeal,
       avgProfit,
+      streakDays,
     };
   }, [scanSessions, favoritePepites, activePepites]);
 
@@ -838,6 +927,7 @@ export const [PepiteProvider, usePepite] = createContextHook(() => {
     completeOnboarding,
     startScan,
     stopScan,
+    recordPhotoScan,
     getPepiteById,
   };
 });

@@ -6,7 +6,9 @@
     "start": "bunx rork start -p ms90ds51pfk4j8hw2uxk5 --tunnel",
     "start-web": "bunx rork start -p ms90ds51pfk4j8hw2uxk5 --web --tunnel",
     "start-web-dev": "DEBUG=expo* bunx rork start -p ms90ds51pfk4j8hw2uxk5 --web --tunnel",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -20,6 +22,7 @@
     "expo": "~54.0.27",
     "expo-av": "~16.0.8",
     "expo-blur": "~15.0.8",
+    "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.11",
     "expo-font": "~14.0.10",
     "expo-haptics": "~15.0.8",

@@ -2,12 +2,13 @@ import * as WebBrowser from 'expo-web-browser';
 import { supabase } from './supabaseClient';
 
 export type PlanId = 'gold' | 'platinum';
+export type BillingPeriod = 'monthly' | 'annual';
 
 /**
  * Appelle la Supabase Edge Function pour créer une Stripe Checkout Session
  * puis ouvre la page de paiement dans le navigateur.
  */
-export async function startCheckout(planId: PlanId): Promise<{ success: boolean; error?: string }> {
+export async function startCheckout(planId: PlanId, billingPeriod: BillingPeriod = 'monthly'): Promise<{ success: boolean; error?: string }> {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     if (!sessionData.session?.access_token) {
@@ -18,6 +19,7 @@ export async function startCheckout(planId: PlanId): Promise<{ success: boolean;
     const { data, error } = await supabase.functions.invoke('create-checkout', {
       body: {
         planId,
+        billingPeriod,
       },
     });
 

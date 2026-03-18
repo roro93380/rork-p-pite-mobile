@@ -15,6 +15,9 @@ import {
   Target,
   Calendar,
   Award,
+  Pickaxe,
+  Trophy,
+  Gem,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import LogoHeader from '@/components/LogoHeader';
@@ -48,6 +51,7 @@ function StatCard({
 export default function MineScreen() {
   const insets = useSafeAreaInsets();
   const { favoritePepites, toggleFavorite, trashPepite, scanStats } = usePepite();
+  const bottomSpacing = insets.bottom + 24;
 
   const {
     scansToday,
@@ -67,10 +71,16 @@ export default function MineScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <LogoHeader size="medium" />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomSpacing }]}
+      >
         {/* Titre */}
         <View style={styles.titleRow}>
-          <Text style={styles.title}>⛏️ La Mine</Text>
+          <View style={styles.titleInline}>
+            <Pickaxe size={28} color={Colors.gold} />
+            <Text style={styles.title}>La Mine</Text>
+          </View>
           <Text style={styles.titleSub}>Ton tableau de bord chineur</Text>
         </View>
 
@@ -126,11 +136,17 @@ export default function MineScreen() {
           {/* Top source + meilleure pépite */}
           <View style={styles.infoRow}>
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>🏆 Source favorite</Text>
+              <View style={styles.infoLabelRow}>
+                <Trophy size={14} color={Colors.gold} />
+                <Text style={styles.infoLabel}>Source favorite</Text>
+              </View>
               <Text style={styles.infoValue}>{topSource}</Text>
             </View>
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>💎 Meilleure trouvaille</Text>
+              <View style={styles.infoLabelRow}>
+                <Gem size={14} color={Colors.gold} />
+                <Text style={styles.infoLabel}>Meilleure trouvaille</Text>
+              </View>
               <Text style={styles.infoValue} numberOfLines={2}>
                 {bestDeal ? `${bestDeal.title} (+${bestDeal.profit}€)` : '—'}
               </Text>
@@ -181,7 +197,7 @@ export default function MineScreen() {
           )}
         </View>
 
-        <View style={styles.footer} />
+        <View style={[styles.footer, { height: bottomSpacing }]} />
       </ScrollView>
     </View>
   );
@@ -199,6 +215,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 4,
     paddingBottom: 16,
+  },
+  titleInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   title: {
     color: Colors.text,
@@ -278,6 +299,11 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
     padding: 12,
     gap: 4,
+  },
+  infoLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   infoLabel: {
     color: Colors.textSecondary,

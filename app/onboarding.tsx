@@ -9,7 +9,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
-import { Video, Bell, Layers, Diamond, ChevronRight } from 'lucide-react-native';
+import { Video, Bell, Layers, Diamond, ChevronRight, Crown } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import GoldButton from '@/components/GoldButton';
@@ -47,13 +47,29 @@ export default function OnboardingScreen() {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    if (step < 2) {
+    if (step < 3) {
       animateTransition(step + 1);
     } else {
       completeOnboarding();
       router.replace('/');
     }
   }, [step, animateTransition, completeOnboarding, router]);
+
+  const handleSkipToFinish = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    completeOnboarding();
+    router.replace('/');
+  }, [completeOnboarding, router]);
+
+  const handleGoToPremium = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    completeOnboarding();
+    router.replace('/premium');
+  }, [completeOnboarding, router]);
 
   const renderStep0 = () => (
     <View style={styles.stepContainer}>
@@ -153,10 +169,32 @@ export default function OnboardingScreen() {
     </ScrollView>
   );
 
+  const renderStep3 = () => (
+    <ScrollView style={styles.scrollStep} contentContainerStyle={styles.stepContainer} bounces={false}>
+      <LogoHeader size="medium" />
+      <View style={styles.upsellContainer}>
+        <Crown size={56} color={Colors.gold} strokeWidth={1.5} />
+        <Text style={styles.permTitle}>
+          Passez au{'\n'}niveau supérieur
+        </Text>
+        <Text style={styles.tutoSubtitle}>
+          Avec Gold, scannez 3x plus et obtenez une analyse IA avancée — 7 jours d'essai gratuit, sans engagement.
+        </Text>
+        <View style={styles.upsellFeatures}>
+          <Text style={styles.upsellFeature}>10 scans/jour (au lieu de 3)</Text>
+          <Text style={styles.upsellFeature}>50 annonces/scan (au lieu de 30)</Text>
+          <Text style={styles.upsellFeature}>Analyse IA avancée</Text>
+          <Text style={styles.upsellFeature}>Historique illimité</Text>
+        </View>
+      </View>
+    </ScrollView>
+  );
+
   const buttonLabels = [
     'Commencer',
     'Accorder les permissions',
     "C'est fait, je suis prêt !",
+    'Essayer Gold gratuitement',
   ];
 
   return (
@@ -166,18 +204,26 @@ export default function OnboardingScreen() {
         {step === 0 && renderStep0()}
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
+        {step === 3 && renderStep3()}
       </Animated.View>
 
       <View style={styles.footer}>
         <View style={styles.dots}>
-          {[0, 1, 2].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <View
               key={i}
               style={[styles.dot, step === i && styles.dotActive]}
             />
           ))}
         </View>
-        <GoldButton title={buttonLabels[step]} onPress={handleNext} />
+        {step === 3 ? (
+          <View style={styles.upsellButtons}>
+            <GoldButton title={buttonLabels[step]} onPress={handleGoToPremium} />
+            <GoldButton title="Non merci, commencer" onPress={handleSkipToFinish} variant="outlined" />
+          </View>
+        ) : (
+          <GoldButton title={buttonLabels[step]} onPress={handleNext} />
+        )}
       </View>
     </View>
   );
@@ -322,5 +368,23 @@ const styles = StyleSheet.create({
   dotActive: {
     backgroundColor: Colors.gold,
     width: 24,
+  },
+  upsellContainer: {
+    alignItems: 'center',
+    marginTop: 24,
+  },
+  upsellFeatures: {
+    marginTop: 24,
+    gap: 10,
+    alignSelf: 'stretch',
+  },
+  upsellFeature: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: '500' as const,
+    paddingLeft: 12,
+  },
+  upsellButtons: {
+    gap: 10,
   },
 });
